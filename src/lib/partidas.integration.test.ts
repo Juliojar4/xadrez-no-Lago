@@ -71,9 +71,15 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
   });
 
   afterAll(async () => {
-    // apagar o usuário apaga o aluno e as partidas dele (cascade)
+    // Primeiro os alunos (leva as partidas deles junto); só então dá para apagar os
+    // usuários, porque games.reported_by aponta para eles.
+    const { error } = await db.from("students").delete().in("id", criados);
+    if (error) throw error;
     if (crieiTurma) await db.from("classes").delete().eq("id", turma);
-    for (const id of criados) await db.auth.admin.deleteUser(id);
+    for (const id of criados) {
+      const { error: erroUsuario } = await db.auth.admin.deleteUser(id);
+      if (erroUsuario) throw erroUsuario;
+    }
   });
 
   it("partida registrada fica pendente e NÃO mexe no rating", async () => {

@@ -4,6 +4,7 @@ import { anular, registrarPartidaProfessor, responderPartida } from "../../acoes
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { LinhaPartida } from "@/components/LinhaPartida";
+import { Seletor } from "@/components/Seletor";
 import { alunosDaTurma, partidas } from "@/lib/consultas";
 import { ratingNaTela } from "@/lib/ranking";
 import { exigirProfessor } from "@/lib/sessao";
@@ -22,21 +23,7 @@ export default async function PartidasTurma({ searchParams }: PageProps<"/profes
     partidas({ classId: turma.id, status: "confirmada", limite: 50 }),
   ]);
 
-  const seletor = (name: string, rotulo: string) => (
-    <label className="grid gap-1 font-bold">
-      {rotulo}
-      <select name={name} required defaultValue="" className="campo">
-        <option value="" disabled>
-          Escolha…
-        </option>
-        {alunos.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.nickname} ({ratingNaTela(a)})
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  const opcoes = alunos.map((a) => ({ valor: a.id, rotulo: a.nickname, detalhe: ratingNaTela(a), avatar: a.avatar }));
 
   return (
     <div className="grid gap-5">
@@ -49,8 +36,8 @@ export default async function PartidasTurma({ searchParams }: PageProps<"/profes
       <form action={registrarPartidaProfessor} className="cartao grid gap-4">
         <h2 className="text-2xl">Registrar resultado</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          {seletor("brancas", "♔ Brancas")}
-          {seletor("pretas", "♚ Pretas")}
+          <Seletor name="brancas" rotulo="♔ Brancas" opcoes={opcoes} required dica="Digite o apelido…" />
+          <Seletor name="pretas" rotulo="♚ Pretas" opcoes={opcoes} required dica="Digite o apelido…" />
         </div>
         <fieldset>
           <legend className="mb-1 font-bold">Resultado</legend>

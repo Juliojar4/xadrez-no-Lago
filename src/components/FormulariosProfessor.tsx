@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { criarAluno, redefinirPin, type EstadoPin } from "@/app/acoes";
 import { Avatar } from "./Avatar";
 import { Enviar } from "./Enviar";
+import { Seletor } from "./Seletor";
 import { AVATARES, NIVEIS } from "@/lib/dominio";
 
 /** O PIN só aparece uma vez (no banco fica apenas o hash). */
@@ -35,16 +36,13 @@ export function NovoAluno() {
           Apelido (sem sobrenome)
           <input name="apelido" required minLength={2} maxLength={20} autoComplete="off" className="campo" />
         </label>
-        <label className="grid gap-1 font-bold">
-          Nível inicial
-          <select name="nivel" required defaultValue="iniciante" className="campo">
-            {Object.entries(NIVEIS).map(([k, n]) => (
-              <option key={k} value={k}>
-                {n.rotulo} ({n.rating})
-              </option>
-            ))}
-          </select>
-        </label>
+        <Seletor
+          name="nivel"
+          rotulo="Nível inicial"
+          required
+          valorInicial="iniciante"
+          opcoes={Object.entries(NIVEIS).map(([k, n]) => ({ valor: k, rotulo: n.rotulo, detalhe: String(n.rating) }))}
+        />
       </div>
       <fieldset>
         <legend className="mb-1 font-bold">Avatar</legend>
