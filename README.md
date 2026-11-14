@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Xadrez da Turma
 
-## Getting Started
+Plataforma de xadrez para alunos de 6 a 14 anos: partidas entre colegas, rating Glicko-1 e ranking da turma.
+Fase 1 (base): contas, turmas, registro de partida presencial, ranking, Novatos e página do aluno.
 
-First, run the development server:
+As decisões tomadas no caminho estão em [DECISOES.md](DECISOES.md).
+
+## Rodar localmente
+
+Precisa de Node 24, pnpm e Docker.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm db:start                 # sobe o Supabase local (demora na primeira vez)
+cp .env.example .env.local    # preencha as chaves com `pnpm exec supabase status`
+pnpm db:reset                 # aplica as migrações e cria a turma de demonstração
+pnpm dev                      # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Contas da turma de demonstração (só existem no banco local):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Quem | Como entrar |
+|---|---|
+| Professor | `prof@exemplo.com`, senha `xadrez123` |
+| Alunos | código `XADREZ`, escolha um apelido, PIN `1234` |
+| Responsável | `responsavel@exemplo.com`; o link chega no Mailpit (http://127.0.0.1:55324) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Comandos
 
-## Learn More
+| Comando | O que faz |
+|---|---|
+| `pnpm test` | Vitest. Os testes de integração usam o Supabase local e são pulados sem ele |
+| `pnpm lint` / `pnpm typecheck` | ESLint e TypeScript |
+| `pnpm db:reset` | Zera o banco local, reaplica as migrações e roda o seed |
+| `pnpm db:types` | Regenera `src/lib/tipos.ts` depois de mudar o banco |
 
-To learn more about Next.js, take a look at the following resources:
+## Onde está cada coisa
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `src/lib/glicko.ts`: a matemática do rating. Não mexer.
+- `src/lib/rating.ts`: ponte entre o banco e o Glicko (cálculo de uma partida e replay da turma).
+- `src/lib/partidas.ts`: registrar, confirmar, recusar e anular partida.
+- `src/app/acoes.ts`: todas as Server Actions (login, turmas, alunos, partidas).
+- `supabase/migrations/`: tabelas, RLS e as funções que gravam o rating de forma atômica.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploy (Vercel + Supabase)
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Aplique as migrações no projeto Supabase (`supabase db push`).
+2. Na Vercel, defina `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` e `NEXT_PUBLIC_SITE_URL`.
+3. No painel do Supabase (Auth): ponha a URL do site em "Site URL" e cole os HTMLs de `supabase/templates/` nos modelos "Invite user" e "Magic Link". Sem isso, os links de e-mail dos responsáveis não funcionam.
+4. Confira se dá para cadastrar um aluno (veja a nota sobre o e-mail interno em DECISOES.md).
