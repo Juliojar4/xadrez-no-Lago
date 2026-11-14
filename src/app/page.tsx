@@ -1,69 +1,34 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Surgir } from "@/components/Movimento";
+
+const ENTRADAS = [
+  { href: "/entrar", peca: "♞", titulo: "Sou aluno", texto: "Entre com o código da turma e o seu PIN.", cor: "bg-roxo text-white" },
+  { href: "/professor", peca: "♚", titulo: "Sou professor", texto: "Crie turmas e registre as partidas.", cor: "bg-sol text-tinta" },
+  { href: "/responsavel", peca: "♜", titulo: "Sou responsável", texto: "Acompanhe as partidas do seu filho.", cor: "bg-menta text-white" },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="grid gap-6 py-4">
+      <div>
+        <h1 className="text-4xl font-extrabold sm:text-5xl">Jogue xadrez com a sua turma!</h1>
+        <p className="mt-2 text-xl text-tinta-suave">
+          Cada partida muda o seu rating. Jogue, aprenda e suba no ranking.
+        </p>
+      </div>
+      <nav aria-label="Entrar" className="grid gap-4 sm:grid-cols-3">
+        {ENTRADAS.map((e, i) => (
+          <Surgir key={e.href} ordem={i * 2}>
+            <Link href={e.href} className="cartao flex h-full flex-col gap-2 hover:border-roxo">
+              <span aria-hidden className={`grid size-16 place-items-center rounded-2xl text-4xl ${e.cor}`}>
+                {e.peca}
+              </span>
+              <span className="font-display text-2xl font-extrabold">{e.titulo}</span>
+              <span className="text-tinta-suave">{e.texto}</span>
+            </Link>
+          </Surgir>
+        ))}
+      </nav>
     </div>
   );
 }
