@@ -75,46 +75,6 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"guardian_students": {
-                  Row: {
-                    "guardian_id": string,"student_id": string
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "guardian_id": string,"student_id": string
-                  }
-                  Update: {
-                    "guardian_id"?: string,"student_id"?: string
-                  }
-                  Relationships: [
-                    {
-      foreignKeyName: "guardian_students_guardian_id_fkey"
-      columns: ["guardian_id"]
-isOneToOne: false
-      referencedRelation: "guardians"
-      referencedColumns: ["id"]
-    },{
-      foreignKeyName: "guardian_students_student_id_fkey"
-      columns: ["student_id"]
-isOneToOne: false
-      referencedRelation: "students"
-      referencedColumns: ["id"]
-    }
-                  ]
-                },"guardians": {
-                  Row: {
-                    "created_at": string,"email": string,"id": string
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "created_at"?: string,"email": string,"id": string
-                  }
-                  Update: {
-                    "created_at"?: string,"email"?: string,"id"?: string
-                  }
-                  Relationships: [
-                    
-                  ]
                 },"student_secrets": {
                   Row: {
                     "failed_attempts": number,"locked_until": string | null,"pin_hash": string,"student_id": string

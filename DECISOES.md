@@ -13,20 +13,22 @@ Escolhas feitas no caminho, da mais importante para a menos. Cada uma diz o que 
 
 ## Contas e segurança
 
+- **Um professor e uma turma só** (decisão do dono do projeto). No primeiro acesso, a tela do professor pede para criar a senha; isso cria o professor e a turma. Depois ele entra só com a senha. Dois índices únicos no banco impedem um segundo professor ou uma segunda turma. As tabelas `teachers` e `classes` continuam existindo (com uma linha cada) porque o RLS se apoia nelas.
+- **Quem abrir o site primeiro define a senha do professor.** Crie a senha logo depois do deploy.
+- **Não há recuperação de senha do professor** (não há e-mail). Para trocar: painel do Supabase, Authentication, usuário `professor@alunos.xadrez.local`.
+- **Sem área de pais/responsáveis** (decisão do dono do projeto). Não há tabelas, convites nem e-mails; o site não envia e-mail nenhum.
+
 - **Sem fluxo de consentimento no site** (decisão do dono do projeto). O consentimento do art. 14 da LGPD precisa ser colhido fora (matrícula, por exemplo). Não existe tabela `consents`; para adicionar depois, basta uma tabela nova e um bloqueio no login do aluno.
-- **Aluno é um usuário do Supabase Auth com e-mail interno** (`<uuid>@alunos.xadrez.local`) que ninguém vê. O servidor confere o PIN e abre a sessão com um token de uso único. Assim o RLS vale igual para todos os papéis. **A conferir no deploy:** se o Supabase hospedado aceita criar usuários com esse domínio (local aceita). Se recusar, troque `DOMINIO_ALUNO` em `src/app/acoes.ts` por um subdomínio seu.
+- **Professor e alunos são usuários do Supabase Auth com e-mail interno** (`<uuid>@alunos.xadrez.local`) que ninguém vê. O servidor confere o PIN e abre a sessão com um token de uso único. Assim o RLS vale igual para todos os papéis. **A conferir no deploy:** se o Supabase hospedado aceita criar usuários com esse domínio (local aceita). Se recusar, troque `DOMINIO_INTERNO` em `src/lib/dominio.ts` por um subdomínio seu.
 - **PIN:** hash com scrypt; 5 tentativas e bloqueia por 15 minutos. A contagem é feita no banco antes de conferir, então tentativas em paralelo não escapam.
 - **Login por lista de apelidos:** quem tem o código da turma vê apelidos e avatares. É o preço de não fazer criança de 6 anos digitar.
-- **O papel (professor/aluno/responsável) vem das tabelas**, nunca de metadados do usuário.
-- **Clientes só leem.** Aluno, partida e rating são gravados pelo servidor com a chave secreta. Exceção: o professor cria e renomeia turmas direto, protegido por RLS.
-- **Responsável só vê o próprio filho.** Nas partidas do filho, o adversário aparece como "Colega".
-- **Responsável entra por link no e-mail** (sem senha). O convite cria a conta; o e-mail fica em `guardians.email` para achar a conta num segundo convite.
-- **Qualquer pessoa pode criar conta de professor.** Se quiser restringir, desligue o cadastro e crie os professores pelo painel.
+- **O papel (professor ou aluno) vem das tabelas**, nunca de metadados do usuário.
+- **Clientes só leem.** Tudo é gravado pelo servidor com a chave secreta.
 
 ## Produto e código
 
 - **Server Actions no lugar de Route Handlers** para os formulários (`src/app/acoes.ts`). Continua tudo no servidor; é menos código e funciona sem JavaScript em quase todas as telas.
-- **QR code por turma**, não por mesa: abre o login e cai direto em "Registrar partida".
+- **Um QR code para a turma**, não por mesa: abre o login e cai direto em "Registrar partida".
 - **Quem registrou não confirma a própria partida**; só o adversário ou o professor. Quem registrou pode cancelar.
 - **A prévia "se ganhar / empatar / perder"** aparece para o aluno. O formulário do professor não mostra prévia.
 - **Gráfico em SVG feito à mão**, sem biblioteca. Um ponto por partida.

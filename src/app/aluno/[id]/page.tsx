@@ -16,7 +16,7 @@ export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) 
   const [{ id }, v] = await Promise.all([params, getViewer()]);
   if (!v || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const supabase = await supabaseServer();
-  // RLS: só volta se quem pede é colega de turma, professor da turma ou responsável.
+  // RLS: só volta se quem pede é colega de turma ou o professor.
   const { data: aluno } = await supabase.from("students").select("*").eq("id", id).maybeSingle();
   if (!aluno) notFound();
 
@@ -30,7 +30,7 @@ export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) 
         ...cronologico.map((p) => (p.white_id === id ? p.white_rating_after : p.black_rating_after)!),
       ]
     : [];
-  const voltar = v.tipo === "professor" ? `/professor/turmas/${aluno.class_id}` : inicioDe(v);
+  const voltar = inicioDe(v);
 
   return (
     <div className="grid gap-5">

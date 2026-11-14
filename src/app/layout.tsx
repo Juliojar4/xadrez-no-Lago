@@ -25,7 +25,7 @@ async function Conta() {
       <Link href={inicioDe(v)} className="flex min-h-11 items-center gap-2 rounded-xl px-2 font-bold">
         {v.tipo === "aluno" && <Avatar chave={v.avatar} tamanho={36} />}
         <span className="max-sm:sr-only">
-          {v.tipo === "aluno" ? v.apelido : v.tipo === "professor" ? v.nome : "Responsável"}
+          {v.tipo === "aluno" ? v.apelido : v.nome}
         </span>
       </Link>
       <form action={sair}>

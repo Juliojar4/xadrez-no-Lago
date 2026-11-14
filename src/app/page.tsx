@@ -3,8 +3,7 @@ import { Surgir } from "@/components/Movimento";
 
 const ENTRADAS = [
   { href: "/entrar", peca: "♞", titulo: "Sou aluno", texto: "Entre com o código da turma e o seu PIN.", cor: "bg-roxo text-white" },
-  { href: "/professor", peca: "♚", titulo: "Sou professor", texto: "Crie turmas e registre as partidas.", cor: "bg-sol text-tinta" },
-  { href: "/responsavel", peca: "♜", titulo: "Sou responsável", texto: "Acompanhe as partidas do seu filho.", cor: "bg-menta text-white" },
+  { href: "/professor", peca: "♚", titulo: "Sou professor", texto: "Cadastre os alunos e registre as partidas.", cor: "bg-sol text-tinta" },
 ];
 
 export default function Home() {
@@ -16,7 +15,7 @@ export default function Home() {
           Cada partida muda o seu rating. Jogue, aprenda e suba no ranking.
         </p>
       </div>
-      <nav aria-label="Entrar" className="grid gap-4 sm:grid-cols-3">
+      <nav aria-label="Entrar" className="grid gap-4 sm:grid-cols-2">
         {ENTRADAS.map((e, i) => (
           <Surgir key={e.href} ordem={i * 2}>
             <Link href={e.href} className="cartao flex h-full flex-col gap-2 hover:border-roxo">

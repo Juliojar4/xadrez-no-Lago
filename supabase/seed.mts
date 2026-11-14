@@ -1,10 +1,10 @@
 /**
- * Turma de demonstração: 1 professor, 10 alunos e 8 semanas de aula.
+ * Dados de demonstração: o professor, a turma, 10 alunos e 8 semanas de aula.
  * Rode com `pnpm db:seed` num banco limpo (`pnpm db:reset` faz as duas coisas).
  * As partidas passam pelo MESMO caminho do site (criarPartida + aplicarPartida).
  */
 import { expectedScore, type Result } from "../src/lib/glicko";
-import { NIVEIS, type Nivel } from "../src/lib/dominio";
+import { DOMINIO_INTERNO, EMAIL_PROFESSOR, NIVEIS, type Nivel } from "../src/lib/dominio";
 import { aplicarPartida, criarPartida } from "../src/lib/partidas";
 import { hashPin } from "../src/lib/pin";
 import { jogadorInicial } from "../src/lib/rating";
@@ -46,25 +46,20 @@ const ok = <T,>(r: { data: T; error: unknown }) => {
   return r.data;
 };
 
-const professor = await usuario("prof@exemplo.com", "xadrez123");
-ok(await db.from("teachers").insert({ id: professor, name: "Prof. Demo" }));
+const professor = await usuario(EMAIL_PROFESSOR, "xadrez123");
+ok(await db.from("teachers").insert({ id: professor, name: "Professor" }));
 const turma = ok(
-  await db.from("classes").insert({ teacher_id: professor, name: "Turma Demo — terça", join_code: "XADREZ" }).select("id").single(),
+  await db.from("classes").insert({ teacher_id: professor, name: "Turma", join_code: "XADREZ" }).select("id").single(),
 )!.id;
 
 const ids: string[] = [];
 for (const a of ALUNOS) {
-  const id = await usuario(`${crypto.randomUUID()}@alunos.xadrez.local`);
+  const id = await usuario(`${crypto.randomUUID()}@${DOMINIO_INTERNO}`);
   const j = jogadorInicial(id, a.nivel);
   ok(await db.from("students").insert({ id, class_id: turma, nickname: a.apelido, avatar: a.avatar, initial_level: a.nivel, rating: j.rating, rd: j.rd }));
   ok(await db.from("student_secrets").insert({ student_id: id, pin_hash: hashPin("1234") }));
   ids.push(id);
 }
-
-// um responsável para testar a área dos pais (entra por link no e-mail: veja o Mailpit)
-const responsavel = await usuario("responsavel@exemplo.com");
-ok(await db.from("guardians").insert({ id: responsavel, email: "responsavel@exemplo.com" }));
-ok(await db.from("guardian_students").insert({ guardian_id: responsavel, student_id: ids[0] }));
 
 // 8 aulas semanais (a última foi ontem), 5 rodadas por aula, pares sorteados
 let total = 0;
@@ -90,7 +85,6 @@ for (let semana = 0; semana < SEMANAS; semana++) {
 await criarPartida({ classId: turma, whiteId: ids[1], blackId: ids[0], whiteScore: 1, reportedBy: ids[1] });
 
 console.log(`Pronto: ${ALUNOS.length} alunos, ${total} partidas confirmadas e 1 pendente.
-  Professor:   prof@exemplo.com / xadrez123
-  Alunos:      código XADREZ, PIN 1234 (todos). Ex.: Bia, Leo, Duda…
-  Responsável: responsavel@exemplo.com (link de entrada chega no Mailpit: http://127.0.0.1:55324)
+  Professor: senha xadrez123
+  Alunos:    código XADREZ, PIN 1234 (todos). Ex.: Bia, Leo, Duda…
   Níveis: ${Object.values(NIVEIS).map((n) => `${n.rotulo} ${n.rating}`).join(" · ")}`);

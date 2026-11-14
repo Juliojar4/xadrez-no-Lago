@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { convidarResponsavel, criarAluno, redefinirPin, type EstadoConvite, type EstadoPin } from "@/app/acoes";
+import { criarAluno, redefinirPin, type EstadoPin } from "@/app/acoes";
 import { Avatar } from "./Avatar";
 import { Enviar } from "./Enviar";
 import { AVATARES, NIVEIS } from "@/lib/dominio";
@@ -24,12 +24,11 @@ function PinNovo({ estado }: { estado: EstadoPin }) {
   );
 }
 
-export function NovoAluno({ turmaId }: { turmaId: string }) {
+export function NovoAluno() {
   const [estado, acao] = useActionState(criarAluno, {});
   return (
     // a key limpa o formulário depois de cada aluno criado
     <form action={acao} key={estado.pin} className="grid gap-4">
-      <input type="hidden" name="turma" value={turmaId} />
       <PinNovo estado={estado} />
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 font-bold">
@@ -74,27 +73,6 @@ export function NovoPin({ alunoId }: { alunoId: string }) {
       <PinNovo estado={estado} />
       <div>
         <Enviar className="btn btn-claro btn-p">Gerar PIN novo</Enviar>
-      </div>
-    </form>
-  );
-}
-
-export function ConvidarResponsavel({ alunoId }: { alunoId: string }) {
-  const [estado, acao] = useActionState<EstadoConvite, FormData>(convidarResponsavel, {});
-  return (
-    <form action={acao} className="grid gap-2">
-      <input type="hidden" name="aluno" value={alunoId} />
-      {(estado.erro || estado.ok) && (
-        <p role={estado.erro ? "alert" : "status"} className="font-bold">
-          {estado.erro ?? estado.ok}
-        </p>
-      )}
-      <label className="grid gap-1 font-bold">
-        E-mail do responsável
-        <input name="email" type="email" required autoComplete="off" className="campo" />
-      </label>
-      <div>
-        <Enviar className="btn btn-claro btn-p">Enviar convite</Enviar>
       </div>
     </form>
   );

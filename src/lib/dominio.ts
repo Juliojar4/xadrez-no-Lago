@@ -1,5 +1,10 @@
 import type { Result } from "./glicko";
 
+// Ninguém usa e-mail no site: professor e alunos são usuários do Supabase Auth com
+// endereços internos que nunca aparecem na tela.
+export const DOMINIO_INTERNO = "alunos.xadrez.local";
+export const EMAIL_PROFESSOR = `professor@${DOMINIO_INTERNO}`;
+
 export const NIVEIS = {
   iniciante: { rotulo: "Iniciante", rating: 400 },
   intermediario: { rotulo: "Intermediário", rating: 800 },
@@ -38,16 +43,13 @@ export const MENSAGENS = {
   dados: "Faltou preencher alguma coisa. Confere e tenta de novo.",
   pin: "PIN errado. Tenta de novo com calma!",
   bloqueado: "Muitas tentativas. Espere 15 minutos ou peça ajuda ao professor.",
-  login: "E-mail ou senha não conferem.",
-  conta: "Não deu para criar a conta. Esse e-mail já pode estar em uso, ou a senha tem menos de 8 letras.",
-  confirme: "Conta criada! Confira seu e-mail para confirmar e depois entre.",
-  link: "Esse link não vale mais. Peça um novo.",
+  login: "A senha não confere.",
+  senha: "A senha precisa ter 8 letras ou mais, e as duas precisam ser iguais.",
   registrada: "Partida registrada! O rating já mudou.",
   enviada: "Enviado! Agora seu adversário precisa confirmar.",
   confirmada: "Partida confirmada! O rating já mudou.",
   recusada: "Partida recusada. Nada mudou no rating.",
   anulada: "Partida anulada. O rating da turma foi recalculado.",
-  enviado: "Se esse e-mail estiver cadastrado, o link de entrada já foi enviado.",
 } as const;
 export type CodigoMensagem = keyof typeof MENSAGENS;
 export const mensagem = (codigo: unknown) =>

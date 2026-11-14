@@ -1,4 +1,5 @@
--- Fase 1: professores, turmas, alunos, responsáveis e partidas.
+-- Fase 1: o professor, a turma, os alunos e as partidas.
+-- O site tem UM professor e UMA turma (índices únicos abaixo garantem isso).
 -- Regra geral: clientes só LEEM (RLS). Toda escrita de aluno/partida/rating
 -- passa pelo servidor do Next com a chave secreta (service_role).
 
@@ -11,6 +12,7 @@ create table public.teachers (
   name text not null check (char_length(name) between 1 and 80),
   created_at timestamptz not null default now()
 );
+create unique index um_professor_so on public.teachers ((true));
 
 create table public.classes (
   id uuid primary key default gen_random_uuid(),
@@ -20,7 +22,7 @@ create table public.classes (
   created_at timestamptz not null default now(),
   archived_at timestamptz
 );
-create index on public.classes (teacher_id);
+create unique index uma_turma_so on public.classes ((true));
 
 create table public.students (
   id uuid primary key references auth.users on delete cascade,
@@ -46,19 +48,6 @@ create table public.student_secrets (
   failed_attempts int not null default 0,
   locked_until timestamptz
 );
-
-create table public.guardians (
-  id uuid primary key references auth.users on delete cascade,
-  email text not null unique,
-  created_at timestamptz not null default now()
-);
-
-create table public.guardian_students (
-  guardian_id uuid not null references public.guardians on delete cascade,
-  student_id uuid not null references public.students on delete cascade,
-  primary key (guardian_id, student_id)
-);
-create index on public.guardian_students (student_id);
 
 create table public.games (
   id uuid primary key default gen_random_uuid(),
@@ -99,14 +88,6 @@ language sql stable security definer set search_path = '' as $$
   select exists (select 1 from public.classes where id = p_class and teacher_id = (select auth.uid()))
 $$;
 
-create function private.guardian_of(p_student uuid) returns boolean
-language sql stable security definer set search_path = '' as $$
-  select exists (
-    select 1 from public.guardian_students
-    where student_id = p_student and guardian_id = (select auth.uid())
-  )
-$$;
-
 grant usage on schema private to authenticated;
 grant execute on all functions in schema private to authenticated;
 
@@ -116,14 +97,10 @@ alter table public.teachers enable row level security;
 alter table public.classes enable row level security;
 alter table public.students enable row level security;
 alter table public.student_secrets enable row level security;
-alter table public.guardians enable row level security;
-alter table public.guardian_students enable row level security;
 alter table public.games enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
-grant select on public.teachers, public.classes, public.students,
-  public.guardians, public.guardian_students, public.games to authenticated;
-grant insert (name, join_code), update (name, archived_at) on public.classes to authenticated;
+grant select on public.teachers, public.classes, public.students, public.games to authenticated;
 grant all on all tables in schema public to service_role;
 
 create policy "professor vê a si mesmo" on public.teachers for select to authenticated
@@ -131,34 +108,12 @@ create policy "professor vê a si mesmo" on public.teachers for select to authen
 
 create policy "turma: professor dono, aluno da turma" on public.classes for select to authenticated
   using (teacher_id = (select auth.uid()) or id = (select private.my_class_id()));
-create policy "professor cria turma" on public.classes for insert to authenticated
-  with check (teacher_id = (select auth.uid()));
-create policy "professor edita turma" on public.classes for update to authenticated
-  using (teacher_id = (select auth.uid())) with check (teacher_id = (select auth.uid()));
 
-create policy "aluno: colegas, professor, responsável" on public.students for select to authenticated
-  using (
-    class_id = (select private.my_class_id())
-    or (select private.teaches(class_id))
-    or (select private.guardian_of(id))
-  );
+create policy "aluno: colegas e professor" on public.students for select to authenticated
+  using (class_id = (select private.my_class_id()) or (select private.teaches(class_id)));
 
-create policy "responsável vê a si mesmo" on public.guardians for select to authenticated
-  using (id = (select auth.uid()));
-
-create policy "vínculo: responsável ou professor" on public.guardian_students for select to authenticated
-  using (
-    guardian_id = (select auth.uid())
-    or exists (select 1 from public.students s where s.id = student_id and private.teaches(s.class_id))
-  );
-
-create policy "partida: turma, professor, responsável" on public.games for select to authenticated
-  using (
-    class_id = (select private.my_class_id())
-    or (select private.teaches(class_id))
-    or (select private.guardian_of(white_id))
-    or (select private.guardian_of(black_id))
-  );
+create policy "partida: turma e professor" on public.games for select to authenticated
+  using (class_id = (select private.my_class_id()) or (select private.teaches(class_id)));
 
 -- ───────────────────────── Funções do servidor ─────────────────────────
 -- Só service_role executa. O cálculo do Glicko é feito em TypeScript

@@ -4,7 +4,16 @@ import { randomInt, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { DEFAULT_CONFIG, type Result } from "@/lib/glicko";
-import { NIVEIS, destinoSeguro, ehAvatar, ehNivel, ehResultado, type CodigoMensagem } from "@/lib/dominio";
+import {
+  DOMINIO_INTERNO,
+  EMAIL_PROFESSOR,
+  NIVEIS,
+  destinoSeguro,
+  ehAvatar,
+  ehNivel,
+  ehResultado,
+  type CodigoMensagem,
+} from "@/lib/dominio";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "@/lib/partidas";
 import { conferePin, hashPin, novoPin } from "@/lib/pin";
 import { exigirAluno, exigirProfessor, getViewer } from "@/lib/sessao";
@@ -13,9 +22,6 @@ import { supabaseServer } from "@/lib/supabase/server";
 
 const texto = (fd: FormData, campo: string) => String(fd.get(campo) ?? "").trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Os alunos não têm e-mail: cada um é um usuário do Auth com endereço interno que ninguém vê.
-const DOMINIO_ALUNO = "alunos.xadrez.local";
 
 const atualizar = () => revalidatePath("/", "layout");
 
@@ -30,6 +36,9 @@ async function tentar(fn: () => Promise<CodigoMensagem>): Promise<{ ok?: CodigoM
 }
 const comMensagem = (caminho: string, r: { ok?: string; erro?: string }) =>
   `${caminho}?${r.erro ? `erro=${r.erro}` : `ok=${r.ok}`}`;
+
+const LETRAS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O e 1/I para não confundir
+const novoCodigo = () => Array.from({ length: 6 }, () => LETRAS[randomInt(LETRAS.length)]).join("");
 
 // ───────────────────────── Entrar / sair ─────────────────────────
 
@@ -75,32 +84,33 @@ export async function entrarAluno(fd: FormData) {
 
 export async function entrarProfessor(fd: FormData) {
   const supabase = await supabaseServer();
-  const { error } = await supabase.auth.signInWithPassword({ email: texto(fd, "email"), password: texto(fd, "senha") });
+  const { error } = await supabase.auth.signInWithPassword({ email: EMAIL_PROFESSOR, password: texto(fd, "senha") });
   redirect(error ? "/professor/entrar?erro=login" : "/professor");
 }
 
-export async function criarContaProfessor(fd: FormData) {
-  const nome = texto(fd, "nome").slice(0, 80);
-  const email = texto(fd, "email");
+/**
+ * Primeiro acesso: cria o professor (só a senha) e a turma única do site.
+ * Só funciona enquanto não existe professor; depois disso, a tela nem aparece.
+ */
+export async function criarSenhaProfessor(fd: FormData) {
   const senha = texto(fd, "senha");
-  if (!nome || !EMAIL.test(email) || senha.length < 8) redirect("/professor/entrar?erro=conta");
+  if (senha.length < 8 || senha !== texto(fd, "confirmar")) redirect("/professor/entrar?erro=senha");
+
+  const db = supabaseAdmin();
+  const { count } = await db.from("teachers").select("id", { count: "exact", head: true });
+  if (count) redirect("/professor/entrar");
+  // Se dois pedidos chegarem juntos, o e-mail fixo e os índices únicos do banco barram o segundo.
+  const { data, error } = await db.auth.admin.createUser({ email: EMAIL_PROFESSOR, password: senha, email_confirm: true });
+  if (error) redirect("/professor/entrar");
+  const id = data.user.id;
+  const { error: erroProf } = await db.from("teachers").insert({ id, name: "Professor" });
+  if (erroProf) throw erroProf;
+  const { error: erroTurma } = await db.from("classes").insert({ teacher_id: id, name: "Turma", join_code: novoCodigo() });
+  if (erroTurma) throw erroTurma;
 
   const supabase = await supabaseServer();
-  const { data, error } = await supabase.auth.signUp({ email, password: senha });
-  if (error || !data.user) redirect("/professor/entrar?erro=conta");
-  // Se o e-mail já existia (com confirmação ligada o Supabase devolve um usuário falso),
-  // este insert falha na chave estrangeira e nada acontece.
-  await supabaseAdmin().from("teachers").insert({ id: data.user.id, name: nome });
-  redirect(data.session ? "/professor" : "/professor/entrar?erro=confirme");
-}
-
-export async function entrarResponsavel(fd: FormData) {
-  const email = texto(fd, "email");
-  if (EMAIL.test(email)) {
-    const supabase = await supabaseServer();
-    await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-  }
-  redirect("/responsavel/entrar?ok=enviado"); // mesma resposta exista ou não a conta
+  await supabase.auth.signInWithPassword({ email: EMAIL_PROFESSOR, password: senha });
+  redirect("/professor");
 }
 
 export async function sair() {
@@ -110,32 +120,13 @@ export async function sair() {
   redirect("/");
 }
 
-// ───────────────────────── Professor: turmas e alunos ─────────────────────────
+// ───────────────────────── Professor: alunos ─────────────────────────
 
-const LETRAS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O e 1/I para não confundir
-const novoCodigo = () => Array.from({ length: 6 }, () => LETRAS[randomInt(LETRAS.length)]).join("");
-
-export async function criarTurma(fd: FormData) {
+/** A turma única. A leitura passa pelo RLS: só o professor dono recebe a linha. */
+async function turmaDoProfessor() {
   await exigirProfessor();
-  const nome = texto(fd, "nome").slice(0, 60);
-  if (!nome) redirect("/professor?erro=dados");
   const supabase = await supabaseServer();
-  const { data, error } = await supabase
-    .from("classes")
-    .insert({ name: nome, join_code: novoCodigo() })
-    .select("id")
-    .single();
-  if (error) throw error;
-  atualizar();
-  redirect(`/professor/turmas/${data.id}`);
-}
-
-/** O professor só enxerga (RLS) alunos e turmas dele: se a leitura voltar vazia, não é dele. */
-async function turmaDoProfessor(classId: string) {
-  await exigirProfessor();
-  if (!UUID.test(classId)) return null;
-  const supabase = await supabaseServer();
-  const { data } = await supabase.from("classes").select("id").eq("id", classId).maybeSingle();
+  const { data } = await supabase.from("classes").select("id").maybeSingle();
   return data;
 }
 async function alunoDoProfessor(alunoId: string) {
@@ -149,7 +140,7 @@ async function alunoDoProfessor(alunoId: string) {
 export type EstadoPin = { erro?: string; pin?: string; apelido?: string };
 
 export async function criarAluno(_: EstadoPin, fd: FormData): Promise<EstadoPin> {
-  const turma = await turmaDoProfessor(texto(fd, "turma"));
+  const turma = await turmaDoProfessor();
   const apelido = texto(fd, "apelido");
   const nivel = texto(fd, "nivel");
   const avatar = texto(fd, "avatar");
@@ -158,7 +149,7 @@ export async function criarAluno(_: EstadoPin, fd: FormData): Promise<EstadoPin>
 
   const db = supabaseAdmin();
   const { data: novo, error } = await db.auth.admin.createUser({
-    email: `${randomUUID()}@${DOMINIO_ALUNO}`,
+    email: `${randomUUID()}@${DOMINIO_INTERNO}`,
     email_confirm: true,
   });
   if (error) throw error;
@@ -204,35 +195,13 @@ export async function alternarAtivo(fd: FormData) {
   }
 }
 
-export type EstadoConvite = { erro?: string; ok?: string };
-
-export async function convidarResponsavel(_: EstadoConvite, fd: FormData): Promise<EstadoConvite> {
-  const aluno = await alunoDoProfessor(texto(fd, "aluno"));
-  const email = texto(fd, "email").toLowerCase();
-  if (!aluno || !EMAIL.test(email)) return { erro: "Confira o e-mail." };
-
-  const db = supabaseAdmin();
-  let { data: resp } = await db.from("guardians").select("id").eq("email", email).maybeSingle();
-  if (!resp) {
-    const { data: convite, error } = await db.auth.admin.inviteUserByEmail(email);
-    if (error) return { erro: "Não consegui convidar esse e-mail. Ele já pode ter conta de professor." };
-    const { error: erroResp } = await db.from("guardians").insert({ id: convite.user.id, email });
-    if (erroResp) throw erroResp;
-    resp = { id: convite.user.id };
-  }
-  const { error } = await db.from("guardian_students").upsert({ guardian_id: resp.id, student_id: aluno.id });
-  if (error) throw error;
-  atualizar();
-  return { ok: `Convite enviado para ${email}.` };
-}
-
 // ───────────────────────── Partidas ─────────────────────────
 
 export async function registrarPartidaProfessor(fd: FormData) {
   const professor = await exigirProfessor();
-  const turma = await turmaDoProfessor(texto(fd, "turma"));
+  const turma = await turmaDoProfessor();
   if (!turma) redirect("/professor");
-  const base = `/professor/turmas/${turma.id}/partidas`;
+  const base = "/professor/partidas";
   const whiteId = texto(fd, "brancas");
   const blackId = texto(fd, "pretas");
   const score = Number(texto(fd, "resultado"));
@@ -275,7 +244,7 @@ export async function responderPartida(fd: FormData) {
   const v = await getViewer();
   const gameId = texto(fd, "partida");
   const aceita = fd.get("resposta") === "sim";
-  if (!v || v.tipo === "responsavel" || !UUID.test(gameId)) redirect("/");
+  if (!v || !UUID.test(gameId)) redirect("/");
 
   // Leitura com RLS: só volta se a partida é da turma de quem pede.
   const supabase = await supabaseServer();
@@ -284,7 +253,7 @@ export async function responderPartida(fd: FormData) {
     .select("class_id, white_id, black_id, reported_by")
     .eq("id", gameId)
     .maybeSingle();
-  const volta = v.tipo === "professor" && g ? `/professor/turmas/${g.class_id}/partidas` : "/turma";
+  const volta = v.tipo === "professor" ? "/professor/partidas" : "/turma";
   if (!g) redirect(`${volta}?erro=resolvida`);
 
   const participa = g.white_id === v.id || g.black_id === v.id;
@@ -306,12 +275,12 @@ export async function anular(fd: FormData) {
   const gameId = texto(fd, "partida");
   if (!UUID.test(gameId)) redirect("/professor");
   const supabase = await supabaseServer();
-  const { data: g } = await supabase.from("games").select("class_id").eq("id", gameId).maybeSingle();
+  const { data: g } = await supabase.from("games").select("id").eq("id", gameId).maybeSingle();
   if (!g) redirect("/professor");
   const r = await tentar(async () => {
     await anularPartida(gameId);
     return "anulada";
   });
   atualizar();
-  redirect(comMensagem(`/professor/turmas/${g.class_id}/partidas`, r));
+  redirect(comMensagem("/professor/partidas", r));
 }

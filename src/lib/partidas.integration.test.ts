@@ -1,6 +1,7 @@
 /**
  * Fluxo de registro de partida contra o Supabase LOCAL (pnpm db:start).
  * Sem as chaves no .env.local, o arquivo inteiro é pulado.
+ * O banco só aceita um professor e uma turma: o teste usa os do seed, ou cria (e apaga) os seus.
  */
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,8 +17,8 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
   const db = supabaseAdmin();
   const criados: string[] = [];
   const sufixo = Date.now();
-  let professor: string, turma: string, outraTurma: string;
-  let ana: string, beto: string, intruso: string;
+  let professor: string, turma: string, crieiTurma = false;
+  let ana: string, beto: string, desativado: string;
 
   async function usuario(nome: string) {
     const email = `${nome}-${sufixo}@teste.local`;
@@ -26,11 +27,12 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
     criados.push(data.user.id);
     return { id: data.user.id, email };
   }
-  async function aluno(nome: string, classId: string, nivel: "iniciante" | "avancado") {
+  async function aluno(apelido: string, classId: string, nivel: "iniciante" | "avancado", active = true) {
+    const nome = `${apelido}${String(sufixo).slice(-6)}`;
     const u = await usuario(nome);
     const j = jogadorInicial(u.id, nivel);
     const { error } = await db.from("students").insert({
-      id: u.id, class_id: classId, nickname: nome, avatar: "peao-roxo", initial_level: nivel, rating: j.rating, rd: j.rd,
+      id: u.id, class_id: classId, nickname: nome, avatar: "peao-roxo", initial_level: nivel, rating: j.rating, rd: j.rd, active,
     });
     if (error) throw error;
     return u;
@@ -48,28 +50,29 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
   const lerAluno = async (id: string) => (await db.from("students").select("*").eq("id", id).single()).data!;
   const lerPartida = async (id: string) => (await db.from("games").select("*").eq("id", id).single()).data!;
 
-  let emailAna: string, emailIntruso: string;
+  let emailAna: string, emailDesativado: string, emailSemPapel: string;
 
   beforeAll(async () => {
-    professor = (await usuario("prof")).id;
-    await db.from("teachers").insert({ id: professor, name: "Prof Teste" });
-    const { data: turmas } = await db
-      .from("classes")
-      .insert([
-        { teacher_id: professor, name: "T1", join_code: `T1${sufixo}` },
-        { teacher_id: professor, name: "T2", join_code: `T2${sufixo}` },
-      ])
-      .select("id");
-    [turma, outraTurma] = turmas!.map((t) => t.id);
+    const { data: existente } = await db.from("classes").select("id, teacher_id").maybeSingle();
+    if (existente) {
+      [turma, professor] = [existente.id, existente.teacher_id];
+    } else {
+      crieiTurma = true;
+      professor = (await usuario("prof")).id;
+      await db.from("teachers").insert({ id: professor, name: "Professor" });
+      turma = (await db.from("classes").insert({ teacher_id: professor, name: "Turma", join_code: `T${sufixo}` }).select("id").single()).data!.id;
+    }
     const a = await aluno("Ana", turma, "iniciante");
     [ana, emailAna] = [a.id, a.email];
     beto = (await aluno("Beto", turma, "avancado")).id;
-    const i = await aluno("Intruso", outraTurma, "iniciante");
-    [intruso, emailIntruso] = [i.id, i.email];
+    const d = await aluno("Fora", turma, "iniciante", false);
+    [desativado, emailDesativado] = [d.id, d.email];
+    emailSemPapel = (await usuario("ninguem")).email;
   });
 
   afterAll(async () => {
-    await db.from("classes").delete().in("id", [turma, outraTurma]);
+    // apagar o usuário apaga o aluno e as partidas dele (cascade)
+    if (crieiTurma) await db.from("classes").delete().eq("id", turma);
     for (const id of criados) await db.auth.admin.deleteUser(id);
   });
 
@@ -82,10 +85,11 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
     expect(await lerAluno(ana)).toMatchObject({ rating: 400, games_played: 0 });
   });
 
-  it("recusa jogador repetido ou de outra turma", async () => {
+  it("recusa jogador repetido, desativado ou que não é aluno", async () => {
     const base = { classId: turma, whiteScore: 1 as const, reportedBy: professor };
     await expect(criarPartida({ ...base, whiteId: ana, blackId: ana })).rejects.toBeInstanceOf(ErroPartida);
-    await expect(criarPartida({ ...base, whiteId: ana, blackId: intruso })).rejects.toBeInstanceOf(ErroPartida);
+    await expect(criarPartida({ ...base, whiteId: ana, blackId: desativado })).rejects.toBeInstanceOf(ErroPartida);
+    await expect(criarPartida({ ...base, whiteId: ana, blackId: professor })).rejects.toBeInstanceOf(ErroPartida);
   });
 
   let g1: string, g2: string;
@@ -121,14 +125,18 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
     await expect(anularPartida(g1)).rejects.toBeInstanceOf(ErroPartida);
   });
 
-  it("RLS: aluno vê a própria turma, não vê outra, e não escreve nada", async () => {
+  it("RLS: aluno ativo vê a turma; desativado ou sem papel não vê nada; ninguém escreve", async () => {
     const comoAna = await clienteDe(emailAna);
-    const comoIntruso = await clienteDe(emailIntruso);
 
-    expect((await comoAna.from("students").select("id")).data?.map((s) => s.id).sort()).toEqual([ana, beto].sort());
-    expect((await comoAna.from("games").select("id").eq("class_id", turma)).data?.length).toBeGreaterThan(0);
-    expect((await comoIntruso.from("students").select("id")).data?.map((s) => s.id)).toEqual([intruso]);
-    expect((await comoIntruso.from("games").select("id").eq("class_id", turma)).data).toEqual([]);
+    const visiveis = (await comoAna.from("students").select("id")).data!.map((s) => s.id);
+    expect(visiveis).toEqual(expect.arrayContaining([ana, beto]));
+    expect((await comoAna.from("games").select("id")).data?.length).toBeGreaterThan(0);
+    for (const email of [emailDesativado, emailSemPapel]) {
+      const c = await clienteDe(email);
+      expect((await c.from("students").select("id")).data).toEqual([]);
+      expect((await c.from("games").select("id")).data).toEqual([]);
+      expect((await c.from("classes").select("id")).data).toEqual([]);
+    }
 
     // PIN: ninguém lê pelo cliente. Rating: ninguém escreve pelo cliente.
     expect((await comoAna.from("student_secrets").select("*")).data ?? []).toEqual([]);

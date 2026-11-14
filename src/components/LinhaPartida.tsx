@@ -8,7 +8,6 @@ export function LinhaPartida({ p, focoId, children }: { p: Partida; focoId?: str
   const antes = souBrancas ? p.white_rating_before : p.black_rating_before;
   const depois = souBrancas ? p.white_rating_after : p.black_rating_after;
   const delta = focoId && antes !== null && depois !== null ? Math.round(depois) - Math.round(antes) : null;
-  // Responsáveis não enxergam os colegas do filho (RLS): o nome vem vazio.
   const nome = (a: { nickname: string } | null) => a?.nickname ?? "Colega";
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-2 border-linha py-2 last:border-0">

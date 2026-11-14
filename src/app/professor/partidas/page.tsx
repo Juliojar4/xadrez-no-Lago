@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { anular, registrarPartidaProfessor, responderPartida } from "../../../../acoes";
+import { anular, registrarPartidaProfessor, responderPartida } from "../../acoes";
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { LinhaPartida } from "@/components/LinhaPartida";
@@ -12,17 +11,15 @@ import { supabaseServer } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Partidas" };
 
-export default async function PartidasTurma({ params, searchParams }: PageProps<"/professor/turmas/[id]/partidas">) {
+export default async function PartidasTurma({ searchParams }: PageProps<"/professor/partidas">) {
   await exigirProfessor();
-  const [{ id }, sp] = await Promise.all([params, searchParams]);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const supabase = await supabaseServer();
-  const { data: turma } = await supabase.from("classes").select("id, name").eq("id", id).maybeSingle();
-  if (!turma) notFound();
+  const [sp, { data: turma, error }] = await Promise.all([searchParams, supabase.from("classes").select("id").single()]);
+  if (error) throw error;
   const [alunos, pendentes, confirmadas] = await Promise.all([
-    alunosDaTurma(id),
-    partidas({ classId: id, status: "pendente" }),
-    partidas({ classId: id, status: "confirmada", limite: 50 }),
+    alunosDaTurma(turma.id),
+    partidas({ classId: turma.id, status: "pendente" }),
+    partidas({ classId: turma.id, status: "confirmada", limite: 50 }),
   ]);
 
   const seletor = (name: string, rotulo: string) => (
@@ -43,15 +40,14 @@ export default async function PartidasTurma({ params, searchParams }: PageProps<
 
   return (
     <div className="grid gap-5">
-      <Link href={`/professor/turmas/${id}`} className="min-h-11 content-center font-bold text-roxo-escuro underline">
-        ← {turma.name}
+      <Link href="/professor" className="min-h-11 content-center font-bold text-roxo-escuro underline">
+        ← Minha turma
       </Link>
       <h1 className="text-3xl">Partidas</h1>
       <Aviso ok={sp.ok} erro={sp.erro} />
 
       <form action={registrarPartidaProfessor} className="cartao grid gap-4">
         <h2 className="text-2xl">Registrar resultado</h2>
-        <input type="hidden" name="turma" value={id} />
         <div className="grid gap-3 sm:grid-cols-2">
           {seletor("brancas", "♔ Brancas")}
           {seletor("pretas", "♚ Pretas")}
