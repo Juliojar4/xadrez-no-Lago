@@ -1,26 +1,147 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-corpo), ui-rounded, system-ui, sans-serif;
+  --font-display: var(--font-titulo), ui-rounded, system-ui, sans-serif;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-fundo: #f6f2ff;
+  --color-papel: #ffffff;
+  --color-tinta: #1d1640;
+  --color-tinta-suave: #554d7a;
+  --color-linha: #dcd3f7;
+  --color-roxo: #5b2be0;
+  --color-roxo-escuro: #3f1aa8;
+  --color-sol: #ffd23f;
+  --color-coral: #d6336c;
+  --color-menta: #0f766e;
+  --color-menta-clara: #d5f5ec;
+  --color-coral-claro: #ffe3ec;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-fundo);
+  /* xadrezinho bem discreto no fundo */
+  background-image: conic-gradient(#efe8ff 25%, transparent 0 50%, #efe8ff 0 75%, transparent 0);
+  background-size: 96px 96px;
+  color: var(--color-tinta);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: 1.15;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-roxo);
+  outline-offset: 3px;
+  border-radius: 0.5rem;
+}
+
+@utility cartao {
+  background: var(--color-papel);
+  border: 2px solid var(--color-linha);
+  border-radius: 1.5rem;
+  padding: 1.25rem;
+  box-shadow: 0 6px 0 var(--color-linha);
+}
+
+/* Botões: alvo mínimo de 48px, com "degrau" embaixo que afunda ao apertar. */
+@utility btn {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 1rem;
+  padding: 0.5rem 1.25rem;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--color-roxo);
+  box-shadow: 0 4px 0 var(--color-roxo-escuro);
+  cursor: pointer;
+  transition: transform 80ms, box-shadow 80ms;
+  &:hover {
+    filter: brightness(1.08);
+  }
+  &:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 var(--color-roxo-escuro);
+  }
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+}
+@utility btn-sol {
+  color: var(--color-tinta);
+  background: var(--color-sol);
+  box-shadow: 0 4px 0 #c99a00;
+  &:active {
+    box-shadow: 0 1px 0 #c99a00;
+  }
+}
+@utility btn-claro {
+  color: var(--color-roxo-escuro);
+  background: #fff;
+  border: 2px solid var(--color-linha);
+  box-shadow: 0 4px 0 var(--color-linha);
+  &:active {
+    box-shadow: 0 1px 0 var(--color-linha);
+  }
+}
+@utility btn-p {
+  min-height: 2.75rem;
+  padding: 0.25rem 0.875rem;
+  font-size: 1rem;
+}
+
+@utility campo {
+  min-height: 3rem;
+  width: 100%;
+  border-radius: 0.875rem;
+  border: 2px solid var(--color-linha);
+  background: #fff;
+  padding: 0.5rem 0.875rem;
+  font-size: 1.125rem;
+  &:focus {
+    border-color: var(--color-roxo);
+  }
+}
+
+/* Opção grande de escolha (radio escondido + cartão): ver <Opcao /> */
+@utility opcao {
+  display: flex;
+  min-height: 3.5rem;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 1rem;
+  border: 2px solid var(--color-linha);
+  background: #fff;
+  padding: 0.5rem 0.75rem;
+  font-weight: 700;
+  text-align: center;
+  &:has(:checked) {
+    border-color: var(--color-roxo);
+    background: #ece4ff;
+    box-shadow: inset 0 0 0 2px var(--color-roxo);
+  }
+  &:has(:focus-visible) {
+    outline: 3px solid var(--color-roxo);
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
