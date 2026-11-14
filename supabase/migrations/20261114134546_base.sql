@@ -28,8 +28,10 @@ create table public.students (
   nickname text not null check (char_length(nickname) between 2 and 20),
   avatar text not null,
   initial_level text not null check (initial_level in ('iniciante', 'intermediario', 'avancado')),
-  rating float8 not null,
-  rd float8 not null,
+  -- numeric (e não float8): a API devolve float8 com só 15 dígitos, e o rating lido
+  -- precisa ser exatamente o gravado para o replay/auditoria bater até a última casa.
+  rating numeric not null,
+  rd numeric not null,
   last_played_at timestamptz,
   games_played int not null default 0,
   active boolean not null default true,
@@ -71,10 +73,10 @@ create table public.games (
   confirmed_by uuid references auth.users,
   -- momento em que o rating foi aplicado (é o "playedAt" do Glicko e a ordem do replay)
   played_at timestamptz,
-  white_rating_before float8, white_rd_before float8,
-  white_rating_after float8, white_rd_after float8,
-  black_rating_before float8, black_rd_before float8,
-  black_rating_after float8, black_rd_after float8,
+  white_rating_before numeric, white_rd_before numeric,
+  white_rating_after numeric, white_rd_after numeric,
+  black_rating_before numeric, black_rd_before numeric,
+  black_rating_after numeric, black_rd_after numeric,
   pgn text,
   created_at timestamptz not null default now(),
   check (white_id <> black_id)
@@ -178,14 +180,14 @@ begin
   perform 1 from public.classes where id = v_game.class_id for update;
 
   update public.students set
-    rating = (p->>'white_rating_after')::float8, rd = (p->>'white_rd_after')::float8,
+    rating = (p->>'white_rating_after')::numeric, rd = (p->>'white_rd_after')::numeric,
     last_played_at = (p->>'played_at')::timestamptz, games_played = games_played + 1
   where id = v_game.white_id and games_played = (p->>'white_games_played')::int;
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'conflito' using errcode = '40001'; end if;
 
   update public.students set
-    rating = (p->>'black_rating_after')::float8, rd = (p->>'black_rd_after')::float8,
+    rating = (p->>'black_rating_after')::numeric, rd = (p->>'black_rd_after')::numeric,
     last_played_at = (p->>'played_at')::timestamptz, games_played = games_played + 1
   where id = v_game.black_id and games_played = (p->>'black_games_played')::int;
   get diagnostics n = row_count;
@@ -195,10 +197,10 @@ begin
     status = 'confirmada',
     confirmed_by = (p->>'confirmed_by')::uuid,
     played_at = (p->>'played_at')::timestamptz,
-    white_rating_before = (p->>'white_rating_before')::float8, white_rd_before = (p->>'white_rd_before')::float8,
-    white_rating_after = (p->>'white_rating_after')::float8, white_rd_after = (p->>'white_rd_after')::float8,
-    black_rating_before = (p->>'black_rating_before')::float8, black_rd_before = (p->>'black_rd_before')::float8,
-    black_rating_after = (p->>'black_rating_after')::float8, black_rd_after = (p->>'black_rd_after')::float8
+    white_rating_before = (p->>'white_rating_before')::numeric, white_rd_before = (p->>'white_rd_before')::numeric,
+    white_rating_after = (p->>'white_rating_after')::numeric, white_rd_after = (p->>'white_rd_after')::numeric,
+    black_rating_before = (p->>'black_rating_before')::numeric, black_rd_before = (p->>'black_rd_before')::numeric,
+    black_rating_after = (p->>'black_rating_after')::numeric, black_rd_after = (p->>'black_rd_after')::numeric
   where id = v_game.id;
 end $$;
 
@@ -220,7 +222,7 @@ begin
   update public.students s set
     rating = x.rating, rd = x.rd, last_played_at = x.last_played_at, games_played = x.games_played
   from jsonb_to_recordset(p_students)
-    as x(id uuid, rating float8, rd float8, last_played_at timestamptz, games_played int)
+    as x(id uuid, rating numeric, rd numeric, last_played_at timestamptz, games_played int)
   where s.id = x.id and s.class_id = p_class;
 
   update public.games g set
@@ -230,8 +232,8 @@ begin
     black_rating_after = x.black_rating_after, black_rd_after = x.black_rd_after
   from jsonb_to_recordset(p_games) as x(
     id uuid,
-    white_rating_before float8, white_rd_before float8, white_rating_after float8, white_rd_after float8,
-    black_rating_before float8, black_rd_before float8, black_rating_after float8, black_rd_after float8
+    white_rating_before numeric, white_rd_before numeric, white_rating_after numeric, white_rd_after numeric,
+    black_rating_before numeric, black_rd_before numeric, black_rating_after numeric, black_rd_after numeric
   )
   where g.id = x.id and g.class_id = p_class;
 end $$;

@@ -6,7 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "db:start": "supabase start -x studio,imgproxy,storage-api,edge-runtime,logflare,vector,postgres-meta,supavisor,realtime",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset && pnpm db:seed",
+    "db:seed": "tsx --conditions=react-server --env-file=.env.local supabase/seed.mts",
+    "db:types": "supabase gen types typescript > src/lib/tipos.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
