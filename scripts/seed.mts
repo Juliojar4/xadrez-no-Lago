@@ -3,16 +3,16 @@
  * Rode com `pnpm db:seed` num banco limpo (`pnpm db:reset` faz as duas coisas).
  * As partidas passam pelo MESMO caminho do site (criarPartida + aplicarPartida).
  */
+import { randomUUID } from "node:crypto";
+import { db } from "../src/lib/db";
 import { expectedScore, type Result } from "../src/lib/glicko";
-import { DOMINIO_INTERNO, EMAIL_PROFESSOR, NIVEIS, type Nivel } from "../src/lib/dominio";
+import { NIVEIS, type Nivel } from "../src/lib/dominio";
 import { aplicarPartida, criarPartida } from "../src/lib/partidas";
-import { hashPin } from "../src/lib/pin";
+import { gravarSegredo } from "../src/lib/pin";
 import { jogadorInicial } from "../src/lib/rating";
-import { supabaseAdmin } from "../src/lib/supabase/admin";
 
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.includes("127.0.0.1")) throw new Error("O seed só roda no Supabase local.");
+if (db.prepare("select 1 from teachers").get()) throw new Error("Banco já semeado. Rode pnpm db:reset.");
 
-const db = supabaseAdmin();
 const DIA = 86_400_000;
 const SEMANAS = 8;
 const RODADAS = 5;
@@ -36,28 +36,20 @@ const ALUNOS: { apelido: string; nivel: Nivel; avatar: string; forca: number; en
   { apelido: "Gui", nivel: "intermediario", avatar: "rei-laranja", forca: 900, entraNaSemana: 7 },
 ];
 
-async function usuario(email: string, password?: string) {
-  const { data, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
-  if (error) throw new Error(`${email}: ${error.message} (banco já semeado? rode pnpm db:reset)`);
-  return data.user.id;
-}
-const ok = <T,>(r: { data: T; error: unknown }) => {
-  if (r.error) throw r.error;
-  return r.data;
-};
-
-const professor = await usuario(EMAIL_PROFESSOR, "xadrez123");
-ok(await db.from("teachers").insert({ id: professor, name: "Professor" }));
-const turma = ok(
-  await db.from("classes").insert({ teacher_id: professor, name: "Turma", join_code: "XADREZ" }).select("id").single(),
-)!.id;
+const professor = randomUUID();
+const turma = randomUUID();
+db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(professor);
+db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'XADREZ')").run(turma, professor);
+gravarSegredo(professor, "xadrez123");
 
 const ids: string[] = [];
 for (const a of ALUNOS) {
-  const id = await usuario(`${crypto.randomUUID()}@${DOMINIO_INTERNO}`);
+  const id = randomUUID();
   const j = jogadorInicial(id, a.nivel);
-  ok(await db.from("students").insert({ id, class_id: turma, nickname: a.apelido, avatar: a.avatar, initial_level: a.nivel, rating: j.rating, rd: j.rd }));
-  ok(await db.from("student_secrets").insert({ student_id: id, pin_hash: hashPin("1234") }));
+  db.prepare("insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)").run(
+    id, turma, a.apelido, a.avatar, a.nivel, j.rating, j.rd,
+  );
+  gravarSegredo(id, "1234");
   ids.push(id);
 }
 

@@ -1,85 +1,36 @@
 /**
- * Fluxo de registro de partida contra o Supabase LOCAL (pnpm db:start).
- * Sem as chaves no .env.local, o arquivo inteiro é pulado.
- * O banco só aceita um professor e uma turma: o teste usa os do seed, ou cria (e apaga) os seus.
+ * Fluxo de registro de partida contra um SQLite em memória (DATABASE_PATH no vitest.config).
  */
-import { createClient } from "@supabase/supabase-js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { beforeAll, describe, expect, it } from "vitest";
+import { db } from "./db";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "./partidas";
+import { conferirSegredo, gravarSegredo } from "./pin";
 import { jogadorInicial, calcularPartida } from "./rating";
-import { supabaseAdmin } from "./supabase/admin";
-import type { Database } from "./tipos";
+import type { Aluno, Jogo } from "./tipos";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const temBanco = Boolean(url?.includes("127.0.0.1") && process.env.SUPABASE_SECRET_KEY);
-
-describe.skipIf(!temBanco)("registro de partida (integração)", () => {
-  const db = supabaseAdmin();
-  const criados: string[] = [];
-  const sufixo = Date.now();
-  let professor: string, turma: string, crieiTurma = false;
+describe("registro de partida (integração)", () => {
+  const professor = randomUUID();
+  const turma = randomUUID();
   let ana: string, beto: string, desativado: string;
 
-  async function usuario(nome: string) {
-    const email = `${nome}-${sufixo}@teste.local`;
-    const { data, error } = await db.auth.admin.createUser({ email, email_confirm: true });
-    if (error) throw error;
-    criados.push(data.user.id);
-    return { id: data.user.id, email };
+  function aluno(apelido: string, nivel: "iniciante" | "avancado", active = 1) {
+    const id = randomUUID();
+    const j = jogadorInicial(id, nivel);
+    db.prepare(
+      "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd, active) values (?, ?, ?, 'peao-roxo', ?, ?, ?, ?)",
+    ).run(id, turma, apelido, nivel, j.rating, j.rd, active);
+    return id;
   }
-  async function aluno(apelido: string, classId: string, nivel: "iniciante" | "avancado", active = true) {
-    const nome = `${apelido}${String(sufixo).slice(-6)}`;
-    const u = await usuario(nome);
-    const j = jogadorInicial(u.id, nivel);
-    const { error } = await db.from("students").insert({
-      id: u.id, class_id: classId, nickname: nome, avatar: "peao-roxo", initial_level: nivel, rating: j.rating, rd: j.rd, active,
-    });
-    if (error) throw error;
-    return u;
-  }
-  /** Cliente logado como o usuário (passa pelo RLS, como o navegador). */
-  async function clienteDe(email: string) {
-    const c = createClient<Database>(url!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
-      auth: { persistSession: false },
-    });
-    const { data } = await db.auth.admin.generateLink({ type: "magiclink", email });
-    const { error } = await c.auth.verifyOtp({ token_hash: data.properties!.hashed_token, type: "email" });
-    if (error) throw error;
-    return c;
-  }
-  const lerAluno = async (id: string) => (await db.from("students").select("*").eq("id", id).single()).data!;
-  const lerPartida = async (id: string) => (await db.from("games").select("*").eq("id", id).single()).data!;
+  const lerAluno = async (id: string) => db.prepare("select * from students where id = ?").get(id) as Aluno;
+  const lerPartida = async (id: string) => db.prepare("select * from games where id = ?").get(id) as Jogo;
 
-  let emailAna: string, emailDesativado: string, emailSemPapel: string;
-
-  beforeAll(async () => {
-    const { data: existente } = await db.from("classes").select("id, teacher_id").maybeSingle();
-    if (existente) {
-      [turma, professor] = [existente.id, existente.teacher_id];
-    } else {
-      crieiTurma = true;
-      professor = (await usuario("prof")).id;
-      await db.from("teachers").insert({ id: professor, name: "Professor" });
-      turma = (await db.from("classes").insert({ teacher_id: professor, name: "Turma", join_code: `T${sufixo}` }).select("id").single()).data!.id;
-    }
-    const a = await aluno("Ana", turma, "iniciante");
-    [ana, emailAna] = [a.id, a.email];
-    beto = (await aluno("Beto", turma, "avancado")).id;
-    const d = await aluno("Fora", turma, "iniciante", false);
-    [desativado, emailDesativado] = [d.id, d.email];
-    emailSemPapel = (await usuario("ninguem")).email;
-  });
-
-  afterAll(async () => {
-    // Primeiro os alunos (leva as partidas deles junto); só então dá para apagar os
-    // usuários, porque games.reported_by aponta para eles.
-    const { error } = await db.from("students").delete().in("id", criados);
-    if (error) throw error;
-    if (crieiTurma) await db.from("classes").delete().eq("id", turma);
-    for (const id of criados) {
-      const { error: erroUsuario } = await db.auth.admin.deleteUser(id);
-      if (erroUsuario) throw erroUsuario;
-    }
+  beforeAll(() => {
+    db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(professor);
+    db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'TESTE')").run(turma, professor);
+    ana = aluno("Ana", "iniciante");
+    beto = aluno("Beto", "avancado");
+    desativado = aluno("Fora", "iniciante", 0);
   });
 
   it("partida registrada fica pendente e NÃO mexe no rating", async () => {
@@ -131,24 +82,18 @@ describe.skipIf(!temBanco)("registro de partida (integração)", () => {
     await expect(anularPartida(g1)).rejects.toBeInstanceOf(ErroPartida);
   });
 
-  it("RLS: aluno ativo vê a turma; desativado ou sem papel não vê nada; ninguém escreve", async () => {
-    const comoAna = await clienteDe(emailAna);
+  it("o banco só aceita um professor, uma turma e apelidos diferentes", () => {
+    expect(() => db.prepare("insert into teachers (id, name) values ('outro', 'Outro')").run()).toThrow(/UNIQUE/);
+    expect(() => aluno("ANA", "iniciante")).toThrow(/UNIQUE/);
+  });
 
-    const visiveis = (await comoAna.from("students").select("id")).data!.map((s) => s.id);
-    expect(visiveis).toEqual(expect.arrayContaining([ana, beto]));
-    expect((await comoAna.from("games").select("id")).data?.length).toBeGreaterThan(0);
-    for (const email of [emailDesativado, emailSemPapel]) {
-      const c = await clienteDe(email);
-      expect((await c.from("students").select("id")).data).toEqual([]);
-      expect((await c.from("games").select("id")).data).toEqual([]);
-      expect((await c.from("classes").select("id")).data).toEqual([]);
-    }
-
-    // PIN: ninguém lê pelo cliente. Rating: ninguém escreve pelo cliente.
-    expect((await comoAna.from("student_secrets").select("*")).data ?? []).toEqual([]);
-    await comoAna.from("students").update({ rating: 3000 }).eq("id", ana);
-    expect((await lerAluno(ana)).rating).toBeLessThan(3000);
-    expect((await comoAna.rpc("apply_game_result", { p: {} })).error).not.toBeNull();
-    expect((await comoAna.rpc("claim_pin_attempt", { p_student: beto })).error).not.toBeNull();
+  it("PIN: 5 erros seguidos bloqueiam por 15 minutos, mesmo com o PIN certo", () => {
+    gravarSegredo(ana, "1234");
+    const t = new Date("2026-03-02T15:00:00Z");
+    expect(conferirSegredo(ana, "1234", t)).toBe("ok");
+    for (let i = 0; i < 5; i++) expect(conferirSegredo(ana, "0000", t)).toBe("errado");
+    expect(conferirSegredo(ana, "1234", t)).toBe("bloqueado");
+    expect(conferirSegredo(ana, "1234", new Date(t.getTime() + 16 * 60_000))).toBe("ok");
+    expect(conferirSegredo("ninguem", "1234", t)).toBe("bloqueado");
   });
 });

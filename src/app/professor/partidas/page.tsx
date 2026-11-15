@@ -5,18 +5,16 @@ import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { LinhaPartida } from "@/components/LinhaPartida";
 import { Seletor } from "@/components/Seletor";
-import { alunosDaTurma, partidas } from "@/lib/consultas";
+import { alunosDaTurma, partidas, turmaUnica } from "@/lib/consultas";
 import { ratingNaTela } from "@/lib/ranking";
 import { exigirProfessor } from "@/lib/sessao";
-import { supabaseServer } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Partidas" };
 
 export default async function PartidasTurma({ searchParams }: PageProps<"/professor/partidas">) {
   await exigirProfessor();
-  const supabase = await supabaseServer();
-  const [sp, { data: turma, error }] = await Promise.all([searchParams, supabase.from("classes").select("id").single()]);
-  if (error) throw error;
+  const sp = await searchParams;
+  const turma = turmaUnica()!; // criada junto com o professor
   const [alunos, pendentes, confirmadas] = await Promise.all([
     alunosDaTurma(turma.id),
     partidas({ classId: turma.id, status: "pendente" }),

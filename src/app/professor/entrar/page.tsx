@@ -4,7 +4,7 @@ import { criarSenhaProfessor, entrarProfessor } from "../../acoes";
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { getViewer } from "@/lib/sessao";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { db } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Professor" };
 
@@ -12,9 +12,7 @@ export default async function EntrarProfessor({ searchParams }: PageProps<"/prof
   const [sp, v] = await Promise.all([searchParams, getViewer()]);
   if (v?.tipo === "professor") redirect("/professor");
   // O site tem um professor só. Enquanto ele não existe, esta tela cria a senha dele.
-  const { count } = await supabaseAdmin().from("teachers").select("id", { count: "exact", head: true });
-
-  if (!count)
+  if (!db.prepare("select 1 from teachers").get())
     return (
       <form action={criarSenhaProfessor} className="cartao mx-auto grid max-w-md gap-4">
         <h1 className="text-3xl">Bem-vindo, professor!</h1>

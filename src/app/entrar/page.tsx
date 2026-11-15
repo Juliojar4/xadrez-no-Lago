@@ -5,9 +5,10 @@ import { entrarAluno } from "../acoes";
 import { Avatar } from "@/components/Avatar";
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
+import { alunosDaTurma } from "@/lib/consultas";
 import { destinoSeguro } from "@/lib/dominio";
 import { getViewer } from "@/lib/sessao";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { db } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Entrar" };
 
@@ -36,15 +37,12 @@ export default async function Entrar({ searchParams }: PageProps<"/entrar">) {
       </form>
     );
 
-  // Quem ainda não entrou não passa pelo RLS: a lista de apelidos sai pelo servidor,
-  // e só para quem tem o código da turma. Só apelido e avatar.
-  const { data: turma } = await supabaseAdmin()
-    .from("classes")
-    .select("name, students(id, nickname, avatar, active)")
-    .eq("join_code", codigo)
-    .is("archived_at", null)
-    .maybeSingle();
-  const alunos = (turma?.students ?? []).filter((a) => a.active).sort((a, b) => a.nickname.localeCompare(b.nickname));
+  // Quem ainda não entrou só recebe a lista de apelidos se tiver o código da turma.
+  // Só apelido e avatar.
+  const turma = db.prepare("select id, name from classes where join_code = ? and archived_at is null").get(codigo) as
+    | { id: string; name: string }
+    | undefined;
+  const alunos = turma ? await alunosDaTurma(turma.id) : [];
 
   if (!turma)
     return (

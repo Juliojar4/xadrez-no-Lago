@@ -4,20 +4,18 @@ import QRCode from "qrcode";
 import { alternarAtivo } from "../acoes";
 import { Avatar } from "@/components/Avatar";
 import { NovoAluno, NovoPin } from "@/components/FormulariosProfessor";
-import { NIVEIS, type Nivel } from "@/lib/dominio";
+import { todosOsAlunos, turmaUnica } from "@/lib/consultas";
+import { NIVEIS } from "@/lib/dominio";
 import { ratingNaTela } from "@/lib/ranking";
 import { exigirProfessor } from "@/lib/sessao";
-import { supabaseServer } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Minha turma" };
 
 export default async function Professor() {
   await exigirProfessor();
-  const supabase = await supabaseServer();
-  const { data: turma, error } = await supabase.from("classes").select("id, join_code, students(*)").single();
-  if (error) throw error;
+  const turma = turmaUnica()!; // criada junto com o professor
 
-  const alunos = turma.students.sort((a, b) => Number(b.active) - Number(a.active) || b.rating - a.rating);
+  const alunos = todosOsAlunos(turma.id).sort((a, b) => Number(b.active) - Number(a.active) || b.rating - a.rating);
   // O QR da mesa leva o aluno direto para "registrar partida" (passando pelo login).
   const link = `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/entrar?codigo=${turma.join_code}&next=/registrar`;
   const qr = await QRCode.toString(link, { type: "svg", margin: 1 });
@@ -62,7 +60,7 @@ export default async function Professor() {
                     {!a.active && " (desativado)"}
                   </span>
                   <span className="text-base text-tinta-suave max-sm:hidden">
-                    {NIVEIS[a.initial_level as Nivel].rotulo} · {a.games_played} partidas
+                    {NIVEIS[a.initial_level].rotulo} · {a.games_played} partidas
                   </span>
                   <span className="font-display text-xl font-extrabold tabular-nums">{ratingNaTela(a)}</span>
                 </summary>

@@ -6,7 +6,7 @@
 import { DEFAULT_CONFIG, newPlayer, recordGame, type Player, type Result } from "./glicko";
 import { NIVEIS, type Nivel } from "./dominio";
 
-// `type` (e não interface) para poder ir direto como JSON para as funções do banco.
+// `type` (e não interface) para poder ir direto como parâmetros nomeados do SQLite.
 export type Jogador = {
   id: string;
   rating: number;

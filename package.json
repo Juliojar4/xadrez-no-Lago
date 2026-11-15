@@ -9,15 +9,10 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "db:start": "supabase start -x studio,imgproxy,storage-api,edge-runtime,logflare,vector,postgres-meta,supavisor,realtime",
-    "db:stop": "supabase stop",
-    "db:reset": "supabase db reset && pnpm db:seed",
-    "db:seed": "tsx --conditions=react-server --env-file=.env.local supabase/seed.mts",
-    "db:types": "supabase gen types typescript > src/lib/tipos.ts"
+    "db:seed": "tsx --conditions=react-server scripts/seed.mts",
+    "db:reset": "rm -f data/xadrez.db data/xadrez.db-wal data/xadrez.db-shm && pnpm db:seed"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.7",
-    "@supabase/supabase-js": "^2.119.0",
     "motion": "^14.14.0",
     "next": "16.4.6",
     "qrcode": "^1.5.4",
@@ -33,7 +28,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "server-only": "^0.0.1",
-    "supabase": "^3.1.0",
     "tailwindcss": "4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^5",

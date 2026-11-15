@@ -4,20 +4,18 @@ import { notFound } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { GraficoRating } from "@/components/GraficoRating";
 import { LinhaPartida } from "@/components/LinhaPartida";
-import { partidas } from "@/lib/consultas";
-import { NIVEIS, type Nivel } from "@/lib/dominio";
+import { alunoPorId, partidas } from "@/lib/consultas";
+import { NIVEIS } from "@/lib/dominio";
 import { ratingNaTela } from "@/lib/ranking";
 import { getViewer, inicioDe } from "@/lib/sessao";
-import { supabaseServer } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Página do aluno" };
 
 export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) {
   const [{ id }, v] = await Promise.all([params, getViewer()]);
   if (!v || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const supabase = await supabaseServer();
-  // RLS: só volta se quem pede é colega de turma ou o professor.
-  const { data: aluno } = await supabase.from("students").select("*").eq("id", id).maybeSingle();
+  // Qualquer pessoa logada é da turma única (colega ou professor).
+  const aluno = alunoPorId(id);
   if (!aluno) notFound();
 
   const jogos = await partidas({ alunoId: id, status: "confirmada" }); // mais nova primeiro
@@ -41,7 +39,7 @@ export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) 
         <Avatar chave={aluno.avatar} tamanho={88} />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-3xl">{aluno.nickname}</h1>
-          <p className="text-tinta-suave">Começou como {NIVEIS[aluno.initial_level as Nivel].rotulo}</p>
+          <p className="text-tinta-suave">Começou como {NIVEIS[aluno.initial_level].rotulo}</p>
         </div>
         <p className="text-right">
           <span className="block text-base font-bold text-tinta-suave">Rating</span>

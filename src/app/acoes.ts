@@ -5,8 +5,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { DEFAULT_CONFIG, type Result } from "@/lib/glicko";
 import {
-  DOMINIO_INTERNO,
-  EMAIL_PROFESSOR,
   NIVEIS,
   destinoSeguro,
   ehAvatar,
@@ -15,10 +13,11 @@ import {
   type CodigoMensagem,
 } from "@/lib/dominio";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "@/lib/partidas";
-import { conferePin, hashPin, novoPin } from "@/lib/pin";
-import { exigirAluno, exigirProfessor, getViewer } from "@/lib/sessao";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { supabaseServer } from "@/lib/supabase/server";
+import { alunoPorId, turmaUnica } from "@/lib/consultas";
+import { db, ehDuplicado, transacao } from "@/lib/db";
+import { conferirSegredo, gravarSegredo, novoPin } from "@/lib/pin";
+import { abrirSessao, exigirAluno, exigirProfessor, fecharSessao, getViewer } from "@/lib/sessao";
+import type { Jogo } from "@/lib/tipos";
 
 const texto = (fd: FormData, campo: string) => String(fd.get(campo) ?? "").trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,39 +52,25 @@ export async function entrarAluno(fd: FormData) {
     );
   if (!UUID.test(alunoId) || !/^\d{4}$/.test(pin)) volta("pin");
 
-  const db = supabaseAdmin();
-  const { data: aluno } = await db
-    .from("students")
-    .select("id, classes!inner(join_code)")
-    .eq("id", alunoId)
-    .eq("active", true)
-    .eq("classes.join_code", codigo)
-    .maybeSingle();
+  const aluno = db
+    .prepare(
+      "select s.id from students s join classes c on c.id = s.class_id where s.id = ? and s.active = 1 and c.join_code = ?",
+    )
+    .get(alunoId, codigo);
   if (!aluno) volta("pin");
 
-  // conta a tentativa antes de conferir; sem hash = bloqueado
-  const { data: hash } = await db.rpc("claim_pin_attempt", { p_student: alunoId });
-  if (!hash) volta("bloqueado");
-  if (!conferePin(pin, hash as string)) volta("pin");
-  await db.from("student_secrets").update({ failed_attempts: 0, locked_until: null }).eq("student_id", alunoId);
-
-  // PIN certo: o servidor gera um token de uso único e abre a sessão do aluno.
-  const { data: u } = await db.auth.admin.getUserById(alunoId);
-  const { data: link, error } = await db.auth.admin.generateLink({ type: "magiclink", email: u.user!.email! });
-  if (error) throw error;
-  const supabase = await supabaseServer();
-  const { error: erroSessao } = await supabase.auth.verifyOtp({
-    token_hash: link.properties.hashed_token,
-    type: "email",
-  });
-  if (erroSessao) throw erroSessao;
+  const r = conferirSegredo(alunoId, pin);
+  if (r !== "ok") volta(r === "bloqueado" ? "bloqueado" : "pin");
+  await abrirSessao(alunoId);
   redirect(next);
 }
 
 export async function entrarProfessor(fd: FormData) {
-  const supabase = await supabaseServer();
-  const { error } = await supabase.auth.signInWithPassword({ email: EMAIL_PROFESSOR, password: texto(fd, "senha") });
-  redirect(error ? "/professor/entrar?erro=login" : "/professor");
+  const prof = db.prepare("select id from teachers").get();
+  const r = prof ? conferirSegredo(prof.id as string, texto(fd, "senha")) : "errado";
+  if (r !== "ok") redirect(`/professor/entrar?erro=${r === "bloqueado" ? "bloqueado" : "login"}`);
+  await abrirSessao(prof!.id as string);
+  redirect("/professor");
 }
 
 /**
@@ -96,45 +81,39 @@ export async function criarSenhaProfessor(fd: FormData) {
   const senha = texto(fd, "senha");
   if (senha.length < 8 || senha !== texto(fd, "confirmar")) redirect("/professor/entrar?erro=senha");
 
-  const db = supabaseAdmin();
-  const { count } = await db.from("teachers").select("id", { count: "exact", head: true });
-  if (count) redirect("/professor/entrar");
-  // Se dois pedidos chegarem juntos, o e-mail fixo e os índices únicos do banco barram o segundo.
-  const { data, error } = await db.auth.admin.createUser({ email: EMAIL_PROFESSOR, password: senha, email_confirm: true });
-  if (error) redirect("/professor/entrar");
-  const id = data.user.id;
-  const { error: erroProf } = await db.from("teachers").insert({ id, name: "Professor" });
-  if (erroProf) throw erroProf;
-  const { error: erroTurma } = await db.from("classes").insert({ teacher_id: id, name: "Turma", join_code: novoCodigo() });
-  if (erroTurma) throw erroTurma;
-
-  const supabase = await supabaseServer();
-  await supabase.auth.signInWithPassword({ email: EMAIL_PROFESSOR, password: senha });
+  // A transação serializa dois pedidos simultâneos: o segundo já encontra o professor.
+  const id = transacao(() => {
+    if (db.prepare("select 1 from teachers").get()) return null;
+    const novo = randomUUID();
+    db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(novo);
+    db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', ?)").run(
+      randomUUID(),
+      novo,
+      novoCodigo(),
+    );
+    gravarSegredo(novo, senha);
+    return novo;
+  });
+  if (!id) redirect("/professor/entrar");
+  await abrirSessao(id);
   redirect("/professor");
 }
 
 export async function sair() {
-  const supabase = await supabaseServer();
-  await supabase.auth.signOut();
+  await fecharSessao();
   atualizar();
   redirect("/");
 }
 
 // ───────────────────────── Professor: alunos ─────────────────────────
 
-/** A turma única. A leitura passa pelo RLS: só o professor dono recebe a linha. */
 async function turmaDoProfessor() {
   await exigirProfessor();
-  const supabase = await supabaseServer();
-  const { data } = await supabase.from("classes").select("id").maybeSingle();
-  return data;
+  return turmaUnica();
 }
 async function alunoDoProfessor(alunoId: string) {
   await exigirProfessor();
-  if (!UUID.test(alunoId)) return null;
-  const supabase = await supabaseServer();
-  const { data } = await supabase.from("students").select("id, class_id, nickname").eq("id", alunoId).maybeSingle();
-  return data;
+  return UUID.test(alunoId) ? alunoPorId(alunoId) : undefined;
 }
 
 export type EstadoPin = { erro?: string; pin?: string; apelido?: string };
@@ -147,31 +126,19 @@ export async function criarAluno(_: EstadoPin, fd: FormData): Promise<EstadoPin>
   if (!turma || apelido.length < 2 || apelido.length > 20 || !ehNivel(nivel) || !ehAvatar(avatar))
     return { erro: "Preencha o apelido (2 a 20 letras), o nível e o avatar." };
 
-  const db = supabaseAdmin();
-  const { data: novo, error } = await db.auth.admin.createUser({
-    email: `${randomUUID()}@${DOMINIO_INTERNO}`,
-    email_confirm: true,
-  });
-  if (error) throw error;
-  const id = novo.user.id;
-
-  const { error: erroAluno } = await db.from("students").insert({
-    id,
-    class_id: turma.id,
-    nickname: apelido,
-    avatar,
-    initial_level: nivel,
-    rating: NIVEIS[nivel].rating,
-    rd: DEFAULT_CONFIG.initialRd,
-  });
-  if (erroAluno) {
-    await db.auth.admin.deleteUser(id);
-    if (erroAluno.code === "23505") return { erro: "Já existe um aluno com esse apelido na turma." };
-    throw erroAluno;
-  }
+  const id = randomUUID();
   const pin = novoPin();
-  const { error: erroPin } = await db.from("student_secrets").insert({ student_id: id, pin_hash: hashPin(pin) });
-  if (erroPin) throw erroPin;
+  try {
+    transacao(() => {
+      db.prepare(
+        "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, turma.id, apelido, avatar, nivel, NIVEIS[nivel].rating, DEFAULT_CONFIG.initialRd);
+      gravarSegredo(id, pin);
+    });
+  } catch (e) {
+    if (ehDuplicado(e)) return { erro: "Já existe um aluno com esse apelido na turma." };
+    throw e;
+  }
   atualizar();
   return { pin, apelido };
 }
@@ -180,17 +147,14 @@ export async function redefinirPin(_: EstadoPin, fd: FormData): Promise<EstadoPi
   const aluno = await alunoDoProfessor(texto(fd, "aluno"));
   if (!aluno) return { erro: "Aluno não encontrado." };
   const pin = novoPin();
-  const { error } = await supabaseAdmin()
-    .from("student_secrets")
-    .upsert({ student_id: aluno.id, pin_hash: hashPin(pin), failed_attempts: 0, locked_until: null });
-  if (error) throw error;
+  gravarSegredo(aluno.id, pin);
   return { pin, apelido: aluno.nickname };
 }
 
 export async function alternarAtivo(fd: FormData) {
   const aluno = await alunoDoProfessor(texto(fd, "aluno"));
   if (aluno) {
-    await supabaseAdmin().from("students").update({ active: fd.get("ativo") === "sim" }).eq("id", aluno.id);
+    db.prepare("update students set active = ? where id = ?").run(fd.get("ativo") === "sim" ? 1 : 0, aluno.id);
     atualizar();
   }
 }
@@ -246,13 +210,9 @@ export async function responderPartida(fd: FormData) {
   const aceita = fd.get("resposta") === "sim";
   if (!v || !UUID.test(gameId)) redirect("/");
 
-  // Leitura com RLS: só volta se a partida é da turma de quem pede.
-  const supabase = await supabaseServer();
-  const { data: g } = await supabase
-    .from("games")
-    .select("class_id, white_id, black_id, reported_by")
-    .eq("id", gameId)
-    .maybeSingle();
+  const g = db.prepare("select white_id, black_id, reported_by from games where id = ?").get(gameId) as
+    | Pick<Jogo, "white_id" | "black_id" | "reported_by">
+    | undefined;
   const volta = v.tipo === "professor" ? "/professor/partidas" : "/turma";
   if (!g) redirect(`${volta}?erro=resolvida`);
 
@@ -274,9 +234,6 @@ export async function anular(fd: FormData) {
   await exigirProfessor();
   const gameId = texto(fd, "partida");
   if (!UUID.test(gameId)) redirect("/professor");
-  const supabase = await supabaseServer();
-  const { data: g } = await supabase.from("games").select("id").eq("id", gameId).maybeSingle();
-  if (!g) redirect("/professor");
   const r = await tentar(async () => {
     await anularPartida(gameId);
     return "anulada";

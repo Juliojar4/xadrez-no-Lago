@@ -1,10 +1,5 @@
 import type { Result } from "./glicko";
 
-// Ninguém usa e-mail no site: professor e alunos são usuários do Supabase Auth com
-// endereços internos que nunca aparecem na tela.
-export const DOMINIO_INTERNO = "alunos.xadrez.local";
-export const EMAIL_PROFESSOR = `professor@${DOMINIO_INTERNO}`;
-
 export const NIVEIS = {
   iniciante: { rotulo: "Iniciante", rating: 400 },
   intermediario: { rotulo: "Intermediário", rating: 800 },
@@ -39,10 +34,9 @@ export const MENSAGENS = {
   iguais: "Escolha dois jogadores diferentes.",
   turma: "Os dois jogadores precisam ser da mesma turma.",
   resolvida: "Essa partida já foi resolvida.",
-  ocupado: "Muita gente registrando ao mesmo tempo. Tente de novo.",
   dados: "Faltou preencher alguma coisa. Confere e tenta de novo.",
   pin: "PIN errado. Tenta de novo com calma!",
-  bloqueado: "Muitas tentativas. Espere 15 minutos ou peça ajuda ao professor.",
+  bloqueado: "Muitas tentativas. Espere 15 minutos (aluno: o professor pode criar um PIN novo).",
   login: "A senha não confere.",
   senha: "A senha precisa ter 8 letras ou mais, e as duas precisam ser iguais.",
   registrada: "Partida registrada! O rating já mudou.",
