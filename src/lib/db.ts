@@ -95,21 +95,37 @@ create index if not exists games_pretas on games (black_id);
 function abrir() {
   const url = process.env.TURSO_DATABASE_URL ?? "file:data/xadrez.db";
   if (url === "file:data/xadrez.db") mkdirSync("data", { recursive: true });
-  const cliente = createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
-  // ponytail: o esquema é conferido uma vez por processo (uma ida ao banco a cada cold start).
-  const pronto = cliente.executeMultiple(`pragma foreign_keys = on;${ESQUEMA}`);
-  return { cliente, pronto };
+  return createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
 }
 
 // Uma conexão por processo (o globalThis sobrevive ao recarregamento do `next dev`).
 const g = globalThis as { __xadrezDb?: ReturnType<typeof abrir> };
-const { cliente, pronto } = (g.__xadrezDb ??= abrir());
+const cliente = (g.__xadrezDb ??= abrir());
+
+// O esquema é conferido na primeira consulta, não ao importar o arquivo: no Turso isso é
+// um fetch, e um fetch que nasce durante um prerender do Next é rejeitado quando o prerender
+// termina. Se falhar, a promessa é descartada e a próxima consulta tenta de novo (antes, uma
+// falha ficava guardada e derrubava todas as páginas até o servidor reiniciar).
+// ponytail: uma ida extra ao banco a cada cold start.
+let esquema: Promise<void> | undefined;
+const garantirEsquema = () =>
+  (esquema ??= cliente.executeMultiple(`pragma foreign_keys = on;${ESQUEMA}`).catch((e) => {
+    esquema = undefined;
+    throw e;
+  }));
+async function pronto() {
+  try {
+    await garantirEsquema();
+  } catch {
+    await garantirEsquema(); // a primeira tentativa pode ter sido a de um prerender abandonado
+  }
+}
 
 type Linha = Record<string, unknown>;
 
 /** Todas as linhas. */
 export async function todos<T = Linha>(sql: string, args: InArgs = []): Promise<T[]> {
-  await pronto;
+  await pronto();
   return (await cliente.execute({ sql, args })).rows as unknown as T[];
 }
 /** A primeira linha (ou undefined). */
@@ -122,7 +138,7 @@ export const rodar = async (sql: string, args: InArgs = []) => void (await todos
  * grava sem conflito. Use o `tx` recebido (e não `um`/`todos`) para ler e gravar.
  */
 export async function transacao<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
-  await pronto;
+  await pronto();
   const tx = await cliente.transaction("write");
   try {
     const r = await fn(tx);
