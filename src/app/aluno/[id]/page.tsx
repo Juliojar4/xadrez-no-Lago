@@ -15,7 +15,7 @@ export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) 
   const [{ id }, v] = await Promise.all([params, getViewer()]);
   if (!v || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
   // Qualquer pessoa logada é da turma única (colega ou professor).
-  const aluno = alunoPorId(id);
+  const aluno = await alunoPorId(id);
   if (!aluno) notFound();
 
   const jogos = await partidas({ alunoId: id, status: "confirmada" }); // mais nova primeiro

@@ -14,7 +14,7 @@ import {
 } from "@/lib/dominio";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "@/lib/partidas";
 import { alunoPorId, turmaUnica } from "@/lib/consultas";
-import { db, ehDuplicado, transacao } from "@/lib/db";
+import { ehDuplicado, rodar, transacao, um } from "@/lib/db";
 import { conferirSegredo, gravarSegredo, novoPin } from "@/lib/pin";
 import { abrirSessao, exigirAluno, exigirProfessor, fecharSessao, getViewer } from "@/lib/sessao";
 import type { Jogo } from "@/lib/tipos";
@@ -52,24 +52,23 @@ export async function entrarAluno(fd: FormData) {
     );
   if (!UUID.test(alunoId) || !/^\d{4}$/.test(pin)) volta("pin");
 
-  const aluno = db
-    .prepare(
-      "select s.id from students s join classes c on c.id = s.class_id where s.id = ? and s.active = 1 and c.join_code = ?",
-    )
-    .get(alunoId, codigo);
+  const aluno = await um(
+    "select s.id from students s join classes c on c.id = s.class_id where s.id = ? and s.active = 1 and c.join_code = ?",
+    [alunoId, codigo],
+  );
   if (!aluno) volta("pin");
 
-  const r = conferirSegredo(alunoId, pin);
+  const r = await conferirSegredo(alunoId, pin);
   if (r !== "ok") volta(r === "bloqueado" ? "bloqueado" : "pin");
   await abrirSessao(alunoId);
   redirect(next);
 }
 
 export async function entrarProfessor(fd: FormData) {
-  const prof = db.prepare("select id from teachers").get();
-  const r = prof ? conferirSegredo(prof.id as string, texto(fd, "senha")) : "errado";
+  const prof = await um<{ id: string }>("select id from teachers");
+  const r = prof ? await conferirSegredo(prof.id, texto(fd, "senha")) : "errado";
   if (r !== "ok") redirect(`/professor/entrar?erro=${r === "bloqueado" ? "bloqueado" : "login"}`);
-  await abrirSessao(prof!.id as string);
+  await abrirSessao(prof!.id);
   redirect("/professor");
 }
 
@@ -82,16 +81,15 @@ export async function criarSenhaProfessor(fd: FormData) {
   if (senha.length < 8 || senha !== texto(fd, "confirmar")) redirect("/professor/entrar?erro=senha");
 
   // A transação serializa dois pedidos simultâneos: o segundo já encontra o professor.
-  const id = transacao(() => {
-    if (db.prepare("select 1 from teachers").get()) return null;
+  const id = await transacao(async (tx) => {
+    if ((await tx.execute("select 1 from teachers")).rows.length) return null;
     const novo = randomUUID();
-    db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(novo);
-    db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', ?)").run(
-      randomUUID(),
-      novo,
-      novoCodigo(),
-    );
-    gravarSegredo(novo, senha);
+    await tx.execute({ sql: "insert into teachers (id, name) values (?, 'Professor')", args: [novo] });
+    await tx.execute({
+      sql: "insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', ?)",
+      args: [randomUUID(), novo, novoCodigo()],
+    });
+    await gravarSegredo(novo, senha, tx);
     return novo;
   });
   if (!id) redirect("/professor/entrar");
@@ -129,11 +127,12 @@ export async function criarAluno(_: EstadoPin, fd: FormData): Promise<EstadoPin>
   const id = randomUUID();
   const pin = novoPin();
   try {
-    transacao(() => {
-      db.prepare(
-        "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, turma.id, apelido, avatar, nivel, NIVEIS[nivel].rating, DEFAULT_CONFIG.initialRd);
-      gravarSegredo(id, pin);
+    await transacao(async (tx) => {
+      await tx.execute({
+        sql: "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)",
+        args: [id, turma.id, apelido, avatar, nivel, NIVEIS[nivel].rating, DEFAULT_CONFIG.initialRd],
+      });
+      await gravarSegredo(id, pin, tx);
     });
   } catch (e) {
     if (ehDuplicado(e)) return { erro: "Já existe um aluno com esse apelido na turma." };
@@ -147,14 +146,14 @@ export async function redefinirPin(_: EstadoPin, fd: FormData): Promise<EstadoPi
   const aluno = await alunoDoProfessor(texto(fd, "aluno"));
   if (!aluno) return { erro: "Aluno não encontrado." };
   const pin = novoPin();
-  gravarSegredo(aluno.id, pin);
+  await gravarSegredo(aluno.id, pin);
   return { pin, apelido: aluno.nickname };
 }
 
 export async function alternarAtivo(fd: FormData) {
   const aluno = await alunoDoProfessor(texto(fd, "aluno"));
   if (aluno) {
-    db.prepare("update students set active = ? where id = ?").run(fd.get("ativo") === "sim" ? 1 : 0, aluno.id);
+    await rodar("update students set active = ? where id = ?", [fd.get("ativo") === "sim" ? 1 : 0, aluno.id]);
     atualizar();
   }
 }
@@ -210,9 +209,10 @@ export async function responderPartida(fd: FormData) {
   const aceita = fd.get("resposta") === "sim";
   if (!v || !UUID.test(gameId)) redirect("/");
 
-  const g = db.prepare("select white_id, black_id, reported_by from games where id = ?").get(gameId) as
-    | Pick<Jogo, "white_id" | "black_id" | "reported_by">
-    | undefined;
+  const g = await um<Pick<Jogo, "white_id" | "black_id" | "reported_by">>(
+    "select white_id, black_id, reported_by from games where id = ?",
+    [gameId],
+  );
   const volta = v.tipo === "professor" ? "/professor/partidas" : "/turma";
   if (!g) redirect(`${volta}?erro=resolvida`);
 

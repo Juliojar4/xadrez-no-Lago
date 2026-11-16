@@ -8,7 +8,7 @@ import { Enviar } from "@/components/Enviar";
 import { alunosDaTurma } from "@/lib/consultas";
 import { destinoSeguro } from "@/lib/dominio";
 import { getViewer } from "@/lib/sessao";
-import { db } from "@/lib/db";
+import { um as umaLinha } from "@/lib/db";
 
 export const metadata: Metadata = { title: "Entrar" };
 
@@ -39,9 +39,10 @@ export default async function Entrar({ searchParams }: PageProps<"/entrar">) {
 
   // Quem ainda não entrou só recebe a lista de apelidos se tiver o código da turma.
   // Só apelido e avatar.
-  const turma = db.prepare("select id, name from classes where join_code = ? and archived_at is null").get(codigo) as
-    | { id: string; name: string }
-    | undefined;
+  const turma = await umaLinha<{ id: string; name: string }>(
+    "select id, name from classes where join_code = ? and archived_at is null",
+    [codigo],
+  );
   const alunos = turma ? await alunosDaTurma(turma.id) : [];
 
   if (!turma)

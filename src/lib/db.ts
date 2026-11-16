@@ -1,7 +1,6 @@
 import "server-only";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createClient, type InArgs, type Transaction } from "@libsql/client";
 
 // O site tem UM professor e UMA turma (índices únicos abaixo garantem isso).
 // Datas são texto ISO em UTC (o mesmo formato do toISOString), então ordenam como texto.
@@ -81,31 +80,48 @@ create index if not exists games_brancas on games (white_id);
 create index if not exists games_pretas on games (black_id);
 `;
 
+// Em produção: Turso (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN). Sem essas variáveis,
+// um arquivo SQLite local, que é o que o `pnpm dev` e os testes usam.
 function abrir() {
-  const caminho = process.env.DATABASE_PATH ?? "data/xadrez.db";
-  if (caminho !== ":memory:") mkdirSync(dirname(caminho), { recursive: true });
-  const db = new DatabaseSync(caminho);
-  db.exec("pragma busy_timeout = 5000; pragma journal_mode = wal; pragma foreign_keys = on;");
-  db.exec(ESQUEMA);
-  return db;
+  const url = process.env.TURSO_DATABASE_URL ?? "file:data/xadrez.db";
+  if (url === "file:data/xadrez.db") mkdirSync("data", { recursive: true });
+  const cliente = createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
+  // ponytail: o esquema é conferido uma vez por processo (uma ida ao banco a cada cold start).
+  const pronto = cliente.executeMultiple(`pragma foreign_keys = on;${ESQUEMA}`);
+  return { cliente, pronto };
 }
 
 // Uma conexão por processo (o globalThis sobrevive ao recarregamento do `next dev`).
-const g = globalThis as { __xadrezDb?: DatabaseSync };
-export const db = (g.__xadrezDb ??= abrir());
+const g = globalThis as { __xadrezDb?: ReturnType<typeof abrir> };
+const { cliente, pronto } = (g.__xadrezDb ??= abrir());
 
-/** Tudo ou nada. `begin immediate` pega a trava de escrita já no começo: quem lê aqui dentro grava sem conflito. */
-export function transacao<T>(fn: () => T): T {
-  db.exec("begin immediate");
+type Linha = Record<string, unknown>;
+
+/** Todas as linhas. */
+export async function todos<T = Linha>(sql: string, args: InArgs = []): Promise<T[]> {
+  await pronto;
+  return (await cliente.execute({ sql, args })).rows as unknown as T[];
+}
+/** A primeira linha (ou undefined). */
+export const um = async <T = Linha>(sql: string, args: InArgs = []) => (await todos<T>(sql, args))[0];
+/** Insert/update/delete; `returning` vem pelo `todos`/`um`. */
+export const rodar = async (sql: string, args: InArgs = []) => void (await todos(sql, args));
+
+/**
+ * Tudo ou nada. A transação de escrita pega a trava já no começo: quem lê aqui dentro
+ * grava sem conflito. Use o `tx` recebido (e não `um`/`todos`) para ler e gravar.
+ */
+export async function transacao<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
+  await pronto;
+  const tx = await cliente.transaction("write");
   try {
-    const r = fn();
-    db.exec("commit");
+    const r = await fn(tx);
+    await tx.commit();
     return r;
-  } catch (e) {
-    db.exec("rollback");
-    throw e;
+  } finally {
+    tx.close(); // desfaz o que não foi confirmado
   }
 }
 
-/** Erro de índice único (SQLITE_CONSTRAINT_UNIQUE). */
-export const ehDuplicado = (e: unknown) => (e as { errcode?: number })?.errcode === 2067;
+/** Erro de índice único. */
+export const ehDuplicado = (e: unknown) => /UNIQUE constraint failed/.test((e as Error)?.message ?? "");

@@ -7,7 +7,7 @@ As decisões tomadas no caminho estão em [DECISOES.md](DECISOES.md).
 
 ## Rodar localmente
 
-Precisa de Node 24 e pnpm. O banco é um arquivo SQLite (`data/xadrez.db`), criado sozinho; não há Docker nem serviço para subir.
+Precisa de Node 24 e pnpm. Localmente o banco é um arquivo SQLite (`data/xadrez.db`), criado sozinho; não há Docker nem serviço para subir. Em produção é o Turso (SQLite hospedado).
 
 ```bash
 pnpm install
@@ -28,7 +28,7 @@ Para ver o primeiro acesso (tela de criar a senha do professor), apague a pasta 
 
 | Comando | O que faz |
 |---|---|
-| `pnpm test` | Vitest. Os testes de integração usam um SQLite em memória |
+| `pnpm test` | Vitest. Os testes de integração usam um arquivo SQLite temporário |
 | `pnpm lint` / `pnpm typecheck` | ESLint e TypeScript |
 | `pnpm db:reset` | Apaga o banco local e roda o seed |
 
@@ -41,11 +41,10 @@ Para ver o primeiro acesso (tela de criar a senha do professor), apague a pasta 
 - `src/lib/db.ts`: a conexão com o SQLite e o esquema das tabelas.
 - `src/lib/sessao.ts`: login por cookie (quem está navegando).
 
-## Deploy
+## Deploy (Vercel + Turso)
 
-O banco é um arquivo, então o site precisa rodar num servidor com **disco persistente** (VPS, ou Fly/Railway/Render com volume). Na Vercel o disco some a cada deploy: lá não funciona.
-
-1. `pnpm build && pnpm start`, com `NEXT_PUBLIC_SITE_URL` (endereço público, usado no QR) e `DATABASE_PATH` apontando para o volume.
-2. Sirva por HTTPS: o cookie de sessão é `Secure` em produção.
+1. O banco Turso é criado pelo Marketplace da Vercel (`vercel integration add tursocloud/database`), que já cadastra `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` no projeto. As tabelas são criadas sozinhas no primeiro acesso.
+2. Defina `NEXT_PUBLIC_SITE_URL` com o endereço público (é o que vai no QR).
 3. Abra `/professor` logo em seguida e crie a senha: quem chegar primeiro define a senha do professor.
-4. Backup: `sqlite3 xadrez.db ".backup copia.db"` (não copie o arquivo solto com o site rodando).
+
+Nunca ponha as variáveis `TURSO_*` de produção no `.env.local`: o `pnpm db:seed` grava no banco para onde elas apontam.

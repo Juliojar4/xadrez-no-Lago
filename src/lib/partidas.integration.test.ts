@@ -1,9 +1,9 @@
 /**
- * Fluxo de registro de partida contra um SQLite em memória (DATABASE_PATH no vitest.config).
+ * Fluxo de registro de partida contra um arquivo SQLite temporário (TURSO_DATABASE_URL no vitest.config).
  */
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { db } from "./db";
+import { rodar, um } from "./db";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "./partidas";
 import { conferirSegredo, gravarSegredo } from "./pin";
 import { jogadorInicial, calcularPartida } from "./rating";
@@ -14,23 +14,24 @@ describe("registro de partida (integração)", () => {
   const turma = randomUUID();
   let ana: string, beto: string, desativado: string;
 
-  function aluno(apelido: string, nivel: "iniciante" | "avancado", active = 1) {
+  async function aluno(apelido: string, nivel: "iniciante" | "avancado", active = 1) {
     const id = randomUUID();
     const j = jogadorInicial(id, nivel);
-    db.prepare(
+    await rodar(
       "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd, active) values (?, ?, ?, 'peao-roxo', ?, ?, ?, ?)",
-    ).run(id, turma, apelido, nivel, j.rating, j.rd, active);
+      [id, turma, apelido, nivel, j.rating, j.rd, active],
+    );
     return id;
   }
-  const lerAluno = async (id: string) => db.prepare("select * from students where id = ?").get(id) as Aluno;
-  const lerPartida = async (id: string) => db.prepare("select * from games where id = ?").get(id) as Jogo;
+  const lerAluno = async (id: string) => (await um<Aluno>("select * from students where id = ?", [id]))!;
+  const lerPartida = async (id: string) => (await um<Jogo>("select * from games where id = ?", [id]))!;
 
-  beforeAll(() => {
-    db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(professor);
-    db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'TESTE')").run(turma, professor);
-    ana = aluno("Ana", "iniciante");
-    beto = aluno("Beto", "avancado");
-    desativado = aluno("Fora", "iniciante", 0);
+  beforeAll(async () => {
+    await rodar("insert into teachers (id, name) values (?, 'Professor')", [professor]);
+    await rodar("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'TESTE')", [turma, professor]);
+    ana = await aluno("Ana", "iniciante");
+    beto = await aluno("Beto", "avancado");
+    desativado = await aluno("Fora", "iniciante", 0);
   });
 
   it("partida registrada fica pendente e NÃO mexe no rating", async () => {
@@ -82,18 +83,18 @@ describe("registro de partida (integração)", () => {
     await expect(anularPartida(g1)).rejects.toBeInstanceOf(ErroPartida);
   });
 
-  it("o banco só aceita um professor, uma turma e apelidos diferentes", () => {
-    expect(() => db.prepare("insert into teachers (id, name) values ('outro', 'Outro')").run()).toThrow(/UNIQUE/);
-    expect(() => aluno("ANA", "iniciante")).toThrow(/UNIQUE/);
+  it("o banco só aceita um professor, uma turma e apelidos diferentes", async () => {
+    await expect(rodar("insert into teachers (id, name) values ('outro', 'Outro')")).rejects.toThrow(/UNIQUE/);
+    await expect(aluno("ANA", "iniciante")).rejects.toThrow(/UNIQUE/);
   });
 
-  it("PIN: 5 erros seguidos bloqueiam por 15 minutos, mesmo com o PIN certo", () => {
-    gravarSegredo(ana, "1234");
+  it("PIN: 5 erros seguidos bloqueiam por 15 minutos, mesmo com o PIN certo", async () => {
+    await gravarSegredo(ana, "1234");
     const t = new Date("2026-03-02T15:00:00Z");
-    expect(conferirSegredo(ana, "1234", t)).toBe("ok");
-    for (let i = 0; i < 5; i++) expect(conferirSegredo(ana, "0000", t)).toBe("errado");
-    expect(conferirSegredo(ana, "1234", t)).toBe("bloqueado");
-    expect(conferirSegredo(ana, "1234", new Date(t.getTime() + 16 * 60_000))).toBe("ok");
-    expect(conferirSegredo("ninguem", "1234", t)).toBe("bloqueado");
+    expect(await conferirSegredo(ana, "1234", t)).toBe("ok");
+    for (let i = 0; i < 5; i++) expect(await conferirSegredo(ana, "0000", t)).toBe("errado");
+    expect(await conferirSegredo(ana, "1234", t)).toBe("bloqueado");
+    expect(await conferirSegredo(ana, "1234", new Date(t.getTime() + 16 * 60_000))).toBe("ok");
+    expect(await conferirSegredo("ninguem", "1234", t)).toBe("bloqueado");
   });
 });

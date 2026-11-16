@@ -4,14 +4,14 @@
  * As partidas passam pelo MESMO caminho do site (criarPartida + aplicarPartida).
  */
 import { randomUUID } from "node:crypto";
-import { db } from "../src/lib/db";
+import { rodar, um } from "../src/lib/db";
 import { expectedScore, type Result } from "../src/lib/glicko";
 import { NIVEIS, type Nivel } from "../src/lib/dominio";
 import { aplicarPartida, criarPartida } from "../src/lib/partidas";
 import { gravarSegredo } from "../src/lib/pin";
 import { jogadorInicial } from "../src/lib/rating";
 
-if (db.prepare("select 1 from teachers").get()) throw new Error("Banco já semeado. Rode pnpm db:reset.");
+if (await um("select 1 from teachers")) throw new Error("Banco já semeado. Rode pnpm db:reset.");
 
 const DIA = 86_400_000;
 const SEMANAS = 8;
@@ -38,18 +38,18 @@ const ALUNOS: { apelido: string; nivel: Nivel; avatar: string; forca: number; en
 
 const professor = randomUUID();
 const turma = randomUUID();
-db.prepare("insert into teachers (id, name) values (?, 'Professor')").run(professor);
-db.prepare("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'XADREZ')").run(turma, professor);
-gravarSegredo(professor, "xadrez123");
+await rodar("insert into teachers (id, name) values (?, 'Professor')", [professor]);
+await rodar("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'XADREZ')", [turma, professor]);
+await gravarSegredo(professor, "xadrez123");
 
 const ids: string[] = [];
 for (const a of ALUNOS) {
   const id = randomUUID();
   const j = jogadorInicial(id, a.nivel);
-  db.prepare("insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)").run(
+  await rodar("insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)", [
     id, turma, a.apelido, a.avatar, a.nivel, j.rating, j.rd,
-  );
-  gravarSegredo(id, "1234");
+  ]);
+  await gravarSegredo(id, "1234");
   ids.push(id);
 }
 

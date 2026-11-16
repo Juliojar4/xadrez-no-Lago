@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Partidas" };
 export default async function PartidasTurma({ searchParams }: PageProps<"/professor/partidas">) {
   await exigirProfessor();
   const sp = await searchParams;
-  const turma = turmaUnica()!; // criada junto com o professor
+  const turma = (await turmaUnica())!; // criada junto com o professor
   const [alunos, pendentes, confirmadas] = await Promise.all([
     alunosDaTurma(turma.id),
     partidas({ classId: turma.id, status: "pendente" }),

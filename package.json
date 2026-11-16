@@ -13,6 +13,7 @@
     "db:reset": "rm -f data/xadrez.db data/xadrez.db-wal data/xadrez.db-shm && pnpm db:seed"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "motion": "^14.14.0",
     "next": "16.4.6",
     "qrcode": "^1.5.4",
