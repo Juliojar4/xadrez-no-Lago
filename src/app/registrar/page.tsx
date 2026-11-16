@@ -4,11 +4,9 @@ import { registrarPartidaAluno } from "../acoes";
 import { Avatar } from "@/components/Avatar";
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
+import { ValePontos } from "@/components/ValePontos";
 import { alunosDaTurma } from "@/lib/consultas";
-import { comSinal } from "@/lib/dominio";
-import { previewDeltas } from "@/lib/glicko";
 import { ratingNaTela } from "@/lib/ranking";
-import { paraPlayer } from "@/lib/rating";
 import { exigirAluno } from "@/lib/sessao";
 
 export const metadata: Metadata = { title: "Registrar partida" };
@@ -49,9 +47,6 @@ export default async function Registrar({ searchParams }: PageProps<"/registrar"
       </div>
     );
 
-  // A prévia é calculada aqui, no servidor, com o mesmo glicko.ts que grava o resultado.
-  const previa = previewDeltas(paraPlayer(meu), paraPlayer(adversario));
-
   return (
     <form action={registrarPartidaAluno} className="grid gap-5">
       <Aviso erro={sp.erro} />
@@ -72,22 +67,8 @@ export default async function Registrar({ searchParams }: PageProps<"/registrar"
         </span>
       </div>
 
-      <section className="cartao" aria-labelledby="t-previa">
-        <h2 id="t-previa" className="mb-2 text-xl">
-          O que vale essa partida para você
-        </h2>
-        <dl className="grid grid-cols-3 gap-2 text-center">
-          {[
-            ["Se ganhar", previa.win, "bg-menta-clara"],
-            ["Se empatar", previa.draw, "bg-fundo"],
-            ["Se perder", previa.loss, "bg-coral-claro"],
-          ].map(([rotulo, valor, cor]) => (
-            <div key={rotulo} className={`rounded-2xl p-3 ${cor}`}>
-              <dt className="text-base font-bold">{rotulo}</dt>
-              <dd className="font-display text-3xl font-extrabold tabular-nums">{comSinal(valor as number)}</dd>
-            </div>
-          ))}
-        </dl>
+      <section className="cartao">
+        <ValePontos a={{ ...meu, nickname: "Você" }} b={adversario} rotulo="O que vale essa partida" />
       </section>
 
       <fieldset className="cartao">

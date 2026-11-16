@@ -77,7 +77,7 @@ export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) 
         ) : (
           <ul>
             {jogos.slice(0, 15).map((p) => (
-              <LinhaPartida key={p.id} p={p} focoId={id} />
+              <LinhaPartida key={p.id} p={p} />
             ))}
           </ul>
         )}

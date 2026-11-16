@@ -3,6 +3,7 @@ import Link from "next/link";
 import { responderPartida } from "../acoes";
 import { Aviso } from "@/components/Aviso";
 import { QuadroRanking } from "@/components/QuadroRanking";
+import { ValePontos } from "@/components/ValePontos";
 import { alunosDaTurma, partidas, type Partida } from "@/lib/consultas";
 import { ratingNaTela } from "@/lib/ranking";
 import { exigirAluno } from "@/lib/sessao";
@@ -64,6 +65,9 @@ export default async function Turma({ searchParams }: PageProps<"/turma">) {
               return (
                 <li key={p.id} className="rounded-2xl bg-fundo p-3">
                   <p className="mb-2 font-bold">{frase}</p>
+                  <div className="mb-3 rounded-2xl bg-papel p-3">
+                    <ValePontos a={p.white} b={p.black} />
+                  </div>
                   <form action={responderPartida} className="flex flex-wrap gap-3">
                     <input type="hidden" name="partida" value={p.id} />
                     {fuiEu ? (

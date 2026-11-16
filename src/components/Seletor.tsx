@@ -20,6 +20,7 @@ export function Seletor({
   valorInicial = "",
   required,
   dica = "Digite para filtrar…",
+  onChange,
 }: {
   name: string;
   rotulo: string;
@@ -27,9 +28,15 @@ export function Seletor({
   valorInicial?: string;
   required?: boolean;
   dica?: string;
+  /** avisa quem usa o seletor a cada escolha ("" quando volta a digitar) */
+  onChange?: (valor: string) => void;
 }) {
   const id = useId();
-  const [valor, setValor] = useState(valorInicial);
+  const [valor, setValorInterno] = useState(valorInicial);
+  const setValor = (v: string) => {
+    setValorInterno(v);
+    onChange?.(v);
+  };
   const [busca, setBusca] = useState<string | null>(null); // null = não está buscando
   const [aberto, setAberto] = useState(false);
   const [ativo, setAtivo] = useState(0);

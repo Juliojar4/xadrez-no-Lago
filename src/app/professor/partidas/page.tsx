@@ -5,9 +5,8 @@ import { anular, registrarPartidaProfessor, responderPartida } from "../../acoes
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { LinhaPartida } from "@/components/LinhaPartida";
-import { Seletor } from "@/components/Seletor";
+import { EscolherJogadores } from "@/components/EscolherJogadores";
 import { alunosDaTurma, localDaVez, partidas } from "@/lib/consultas";
-import { ratingNaTela } from "@/lib/ranking";
 import { exigirProfessor } from "@/lib/sessao";
 
 export const metadata: Metadata = { title: "Partidas" };
@@ -22,8 +21,6 @@ export default async function PartidasTurma({ searchParams }: PageProps<"/profes
     partidas({ classId: turma.id, status: "confirmada", limite: 50 }),
   ]);
 
-  const opcoes = alunos.map((a) => ({ valor: a.id, rotulo: a.nickname, detalhe: ratingNaTela(a), avatar: a.avatar }));
-
   return (
     <div className="grid gap-5">
       <Link href={`/professor?local=${turma.id}`} className="min-h-11 content-center font-bold text-roxo-escuro underline">
@@ -35,10 +32,7 @@ export default async function PartidasTurma({ searchParams }: PageProps<"/profes
       <form action={registrarPartidaProfessor} className="cartao grid gap-4">
         <h2 className="text-2xl">Registrar resultado</h2>
         <input type="hidden" name="local" value={turma.id} />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Seletor name="brancas" rotulo="♔ Brancas" opcoes={opcoes} required dica="Digite o apelido…" />
-          <Seletor name="pretas" rotulo="♚ Pretas" opcoes={opcoes} required dica="Digite o apelido…" />
-        </div>
+        <EscolherJogadores alunos={alunos} />
         <fieldset>
           <legend className="mb-1 font-bold">Resultado</legend>
           <div className="grid grid-cols-3 gap-3">

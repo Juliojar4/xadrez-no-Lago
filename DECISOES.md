@@ -38,7 +38,7 @@ Escolhas feitas no caminho, da mais importante para a menos. Cada uma diz o que 
 - **Server Actions no lugar de Route Handlers** para os formulários (`src/app/acoes.ts`). Continua tudo no servidor; é menos código e funciona sem JavaScript em quase todas as telas.
 - **Um QR code por local**, não por mesa: abre o PIN daquele local e cai direto em "Registrar partida".
 - **Quem registrou não confirma a própria partida**; só o adversário ou o professor. Quem registrou pode cancelar.
-- **A prévia "se ganhar / empatar / perder"** aparece para o aluno. O formulário do professor não mostra prévia.
+- **"Quanto vale esta partida" em todo confronto** (pedido do dono do projeto): para os dois alunos, se ganhar, empatar ou perder. Aparece no registro do aluno, no registro do professor (assim que os dois são escolhidos) e nas partidas esperando confirmação. É calculado com o rating de agora, então muda se um dos dois jogar outra partida antes da confirmação. Nas partidas já confirmadas, cada nome mostra quanto ganhou ou perdeu.
 - **Gráfico em SVG feito à mão**, sem biblioteca. Um ponto por partida.
 - **Avatares:** peça de xadrez + cor (36 combinações). Sem imagens.
 - **Ranking ao vivo (Realtime) fica para a Fase 2.** Na Fase 1 a página atualiza ao navegar.
