@@ -7,6 +7,8 @@ import { connection } from "next/server";
 import { rodar, um } from "./db";
 
 export type Viewer =
+  | { tipo: "admin"; id: "admin"; nome: string }
+  // o professor É a cidade: o id é o da cidade e o nome, o dela
   | { tipo: "professor"; id: string; nome: string }
   | { tipo: "aluno"; id: string; classId: string; apelido: string; avatar: string };
 
@@ -57,11 +59,12 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   }>(
     `select s.user_id id, t.name nome, a.class_id, a.nickname, a.avatar
      from sessions s
-     left join teachers t on t.id = s.user_id
+     left join cities t on t.id = s.user_id
      left join students a on a.id = s.user_id and a.active = 1
      where s.token_hash = ? and s.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
     [hashDe(token)],
   );
+  if (l?.id === "admin") return { tipo: "admin", id: "admin", nome: "Administrador" };
   if (l?.nome != null) return { tipo: "professor", id: l.id, nome: l.nome };
   if (l?.class_id) return { tipo: "aluno", id: l.id, classId: l.class_id, apelido: l.nickname, avatar: l.avatar };
   return null;
@@ -73,10 +76,16 @@ export async function exigirProfessor() {
   return v;
 }
 
+export async function exigirAdmin() {
+  const v = await getViewer();
+  if (v?.tipo !== "admin") redirect("/admin/entrar");
+  return v;
+}
+
 export async function exigirAluno(voltarPara = "/turma") {
   const v = await getViewer();
   if (v?.tipo !== "aluno") redirect(`/entrar?next=${encodeURIComponent(voltarPara)}`);
   return v;
 }
 
-export const inicioDe = (v: Viewer) => (v.tipo === "professor" ? "/professor" : "/turma");
+export const inicioDe = (v: Viewer) => ({ admin: "/admin", professor: "/professor", aluno: "/turma" })[v.tipo];

@@ -3,9 +3,9 @@
  */
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { rodar, um } from "./db";
+import { rodar, transacao, um } from "./db";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "./partidas";
-import { conferirSegredo, gravarSegredo } from "./pin";
+import { conferirSegredo, entrarComPin, gravarPin, gravarSegredo } from "./pin";
 import { jogadorInicial, calcularPartida } from "./rating";
 import type { Aluno, Jogo } from "./tipos";
 
@@ -27,8 +27,8 @@ describe("registro de partida (integração)", () => {
   const lerPartida = async (id: string) => (await um<Jogo>("select * from games where id = ?", [id]))!;
 
   beforeAll(async () => {
-    await rodar("insert into teachers (id, name) values (?, 'Professor')", [professor]);
-    await rodar("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'TESTE')", [turma, professor]);
+    await rodar("insert into cities (id, name) values (?, 'Cidade')", [professor]);
+    await rodar("insert into classes (id, city_id, name) values (?, ?, 'Local')", [turma, professor]);
     ana = await aluno("Ana", "iniciante");
     beto = await aluno("Beto", "avancado");
     desativado = await aluno("Fora", "iniciante", 0);
@@ -83,18 +83,44 @@ describe("registro de partida (integração)", () => {
     await expect(anularPartida(g1)).rejects.toBeInstanceOf(ErroPartida);
   });
 
-  it("o banco só aceita um professor, uma turma e apelidos diferentes", async () => {
-    await expect(rodar("insert into teachers (id, name) values ('outro', 'Outro')")).rejects.toThrow(/UNIQUE/);
+  it("o banco não aceita cidade, local ou apelido repetidos", async () => {
+    await expect(rodar("insert into cities (id, name) values ('outra', 'CIDADE')")).rejects.toThrow(/UNIQUE/);
+    await expect(rodar("insert into classes (id, city_id, name) values ('outro', ?, 'LOCAL')", [professor])).rejects.toThrow(/UNIQUE/);
     await expect(aluno("ANA", "iniciante")).rejects.toThrow(/UNIQUE/);
   });
 
-  it("PIN: 5 erros seguidos bloqueiam por 15 minutos, mesmo com o PIN certo", async () => {
-    await gravarSegredo(ana, "1234");
-    const t = new Date("2026-03-02T15:00:00Z");
-    expect(await conferirSegredo(ana, "1234", t)).toBe("ok");
-    for (let i = 0; i < 5; i++) expect(await conferirSegredo(ana, "0000", t)).toBe("errado");
-    expect(await conferirSegredo(ana, "1234", t)).toBe("bloqueado");
-    expect(await conferirSegredo(ana, "1234", new Date(t.getTime() + 16 * 60_000))).toBe("ok");
-    expect(await conferirSegredo("ninguem", "1234", t)).toBe("bloqueado");
+  const t = new Date("2026-03-02T15:00:00Z");
+  const depois = new Date(t.getTime() + 16 * 60_000);
+
+  it("senha: 5 erros seguidos bloqueiam por 15 minutos, mesmo com a senha certa", async () => {
+    await gravarSegredo(professor, "segredo-certo");
+    expect(await conferirSegredo(professor, "segredo-certo", t)).toBe("ok");
+    for (let i = 0; i < 5; i++) expect(await conferirSegredo(professor, "errada", t)).toBe("errado");
+    expect(await conferirSegredo(professor, "segredo-certo", t)).toBe("bloqueado");
+    expect(await conferirSegredo(professor, "segredo-certo", depois)).toBe("ok");
+    expect(await conferirSegredo("ninguem", "segredo-certo", t)).toBe("errado");
+  });
+
+  it("PIN: acha o aluno só pelo PIN dentro do local, sem repetir PIN", async () => {
+    const outroLocal = "11111111-1111-4111-8111-111111111111";
+    await rodar("insert into classes (id, city_id, name) values (?, ?, 'Outro')", [outroLocal, professor]);
+    await transacao(async (tx) => {
+      await gravarPin(tx, ana, turma, "1234");
+      await gravarPin(tx, desativado, turma, "5678");
+      // PIN já usado no local: o pedido explícito falha, o sorteio escolhe outro
+      await expect(gravarPin(tx, beto, turma, "1234")).rejects.toThrow();
+      expect(await gravarPin(tx, beto, turma)).not.toBe("1234");
+    });
+    expect(await entrarComPin(turma, "1234", "ip1", t)).toEqual({ id: ana });
+    expect(await entrarComPin(turma, "0000", "ip1", t)).toBe("errado");
+    expect(await entrarComPin(turma, "5678", "ip1", t)).toBe("errado"); // aluno desativado
+    expect(await entrarComPin(outroLocal, "1234", "ip1", t)).toBe("errado"); // PIN de outro local
+  });
+
+  it("PIN: 10 erros seguidos do mesmo IP bloqueiam só aquele IP", async () => {
+    for (let i = 0; i < 10; i++) expect(await entrarComPin(turma, "0000", "ip2", t)).toBe("errado");
+    expect(await entrarComPin(turma, "1234", "ip2", t)).toBe("bloqueado");
+    expect(await entrarComPin(turma, "1234", "ip3", t)).toEqual({ id: ana });
+    expect(await entrarComPin(turma, "1234", "ip2", depois)).toEqual({ id: ana });
   });
 });

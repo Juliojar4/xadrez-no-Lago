@@ -25,11 +25,12 @@ function PinNovo({ estado }: { estado: EstadoPin }) {
   );
 }
 
-export function NovoAluno() {
+export function NovoAluno({ localId }: { localId: string }) {
   const [estado, acao] = useActionState(criarAluno, {});
   return (
     // a key limpa o formulário depois de cada aluno criado
     <form action={acao} key={estado.pin} className="grid gap-4">
+      <input type="hidden" name="local" value={localId} />
       <PinNovo estado={estado} />
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 font-bold">

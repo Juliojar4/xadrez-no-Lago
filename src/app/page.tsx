@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Surgir } from "@/components/Movimento";
 
 const ENTRADAS = [
-  { href: "/entrar", peca: "♞", titulo: "Sou aluno", texto: "Entre com o código da turma e o seu PIN.", cor: "bg-roxo text-white" },
+  { href: "/entrar", peca: "♞", titulo: "Sou aluno", texto: "Escolha a sua cidade e digite o seu PIN.", cor: "bg-roxo text-white" },
   { href: "/professor", peca: "♚", titulo: "Sou professor", texto: "Cadastre os alunos e registre as partidas.", cor: "bg-sol text-tinta" },
 ];
 
@@ -28,6 +28,9 @@ export default function Home() {
           </Surgir>
         ))}
       </nav>
+      <Link href="/admin" className="min-h-11 content-center justify-self-start text-base text-tinta-suave underline">
+        Administração
+      </Link>
     </div>
   );
 }

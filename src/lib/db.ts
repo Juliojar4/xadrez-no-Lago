@@ -2,27 +2,28 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import { createClient, type InArgs, type Transaction } from "@libsql/client";
 
-// O site tem UM professor e UMA turma (índices únicos abaixo garantem isso).
+// Cidades → locais (cada local é uma turma, com ranking próprio) → alunos.
+// Cada cidade tem um professor (a senha fica em `secrets`, na chave da cidade); o
+// administrador (chave 'admin' em `secrets`) cria as cidades.
 // Datas são texto ISO em UTC (o mesmo formato do toISOString), então ordenam como texto.
 // ponytail: sem sistema de migrações; o esquema é criado se não existir. Para mudar uma
 // tabela que já tem dados, escreva o `alter table` aqui (ou adote migrações numeradas).
 const ESQUEMA = `
-create table if not exists teachers (
+create table if not exists cities (
   id text primary key,
-  name text not null check (length(name) between 1 and 80),
+  name text not null check (length(name) between 2 and 60),
   created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-create unique index if not exists um_professor_so on teachers ((1));
+-- ponytail: o lower() do SQLite só conhece ASCII ("Ágata" e "ágata" passam como diferentes).
+create unique index if not exists cities_nome_unico on cities (lower(name));
 
 create table if not exists classes (
   id text primary key,
-  teacher_id text not null references teachers on delete cascade,
-  name text not null check (length(name) between 1 and 60),
-  join_code text not null unique,
-  created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  archived_at text
+  city_id text not null references cities on delete cascade,
+  name text not null check (length(name) between 2 and 60),
+  created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-create unique index if not exists uma_turma_so on classes ((1));
+create unique index if not exists classes_nome_unico on classes (city_id, lower(name));
 
 create table if not exists students (
   id text primary key,
@@ -37,13 +38,22 @@ create table if not exists students (
   active integer not null default 1,
   created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
--- ponytail: o lower() do SQLite só conhece ASCII ("Ágata" e "ágata" passam como diferentes).
 create unique index if not exists students_apelido_unico on students (class_id, lower(nickname));
 
--- Senha do professor e PIN dos alunos (hash scrypt). Nunca vai em "select *" de aluno.
+-- Senhas (admin e professor de cada cidade): hash scrypt com sal, class_id nulo.
+-- PIN de aluno: class_id preenchido e hash SEM sal próprio (o sal é o local), porque o
+-- aluno entra só com o PIN e é por (local, hash) que o achamos. O índice único garante
+-- que dois alunos do mesmo local nunca têm o mesmo PIN.
 create table if not exists secrets (
   user_id text primary key,
-  hash text not null,
+  class_id text,
+  hash text not null
+);
+create unique index if not exists secrets_pin_unico on secrets (class_id, hash) where class_id is not null;
+
+-- Tentativas erradas seguidas, por chave ("u:<quem>" ou "pin:<local>:<ip>").
+create table if not exists attempts (
+  key text primary key,
   failed_attempts integer not null default 0,
   locked_until text
 );

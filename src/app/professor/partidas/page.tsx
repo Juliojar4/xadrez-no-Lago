@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { anular, registrarPartidaProfessor, responderPartida } from "../../acoes";
 import { Aviso } from "@/components/Aviso";
 import { Enviar } from "@/components/Enviar";
 import { LinhaPartida } from "@/components/LinhaPartida";
 import { Seletor } from "@/components/Seletor";
-import { alunosDaTurma, partidas, turmaUnica } from "@/lib/consultas";
+import { alunosDaTurma, localDaVez, partidas } from "@/lib/consultas";
 import { ratingNaTela } from "@/lib/ranking";
 import { exigirProfessor } from "@/lib/sessao";
 
 export const metadata: Metadata = { title: "Partidas" };
 
 export default async function PartidasTurma({ searchParams }: PageProps<"/professor/partidas">) {
-  await exigirProfessor();
-  const sp = await searchParams;
-  const turma = (await turmaUnica())!; // criada junto com o professor
+  const [prof, sp] = await Promise.all([exigirProfessor(), searchParams]);
+  const { atual: turma } = await localDaVez(prof.id, sp.local);
+  if (!turma) redirect("/professor");
   const [alunos, pendentes, confirmadas] = await Promise.all([
     alunosDaTurma(turma.id),
     partidas({ classId: turma.id, status: "pendente" }),
@@ -25,14 +26,15 @@ export default async function PartidasTurma({ searchParams }: PageProps<"/profes
 
   return (
     <div className="grid gap-5">
-      <Link href="/professor" className="min-h-11 content-center font-bold text-roxo-escuro underline">
-        ← Minha turma
+      <Link href={`/professor?local=${turma.id}`} className="min-h-11 content-center font-bold text-roxo-escuro underline">
+        ← {turma.name}
       </Link>
-      <h1 className="text-3xl">Partidas</h1>
+      <h1 className="text-3xl">Partidas em {turma.name}</h1>
       <Aviso ok={sp.ok} erro={sp.erro} />
 
       <form action={registrarPartidaProfessor} className="cartao grid gap-4">
         <h2 className="text-2xl">Registrar resultado</h2>
+        <input type="hidden" name="local" value={turma.id} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Seletor name="brancas" rotulo="♔ Brancas" opcoes={opcoes} required dica="Digite o apelido…" />
           <Seletor name="pretas" rotulo="♚ Pretas" opcoes={opcoes} required dica="Digite o apelido…" />

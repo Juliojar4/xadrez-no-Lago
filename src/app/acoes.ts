@@ -1,26 +1,22 @@
 "use server";
 
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DEFAULT_CONFIG, type Result } from "@/lib/glicko";
-import {
-  NIVEIS,
-  destinoSeguro,
-  ehAvatar,
-  ehNivel,
-  ehResultado,
-  type CodigoMensagem,
-} from "@/lib/dominio";
+import { NIVEIS, PIN_DIGITOS, destinoSeguro, ehAvatar, ehNivel, ehResultado, type CodigoMensagem } from "@/lib/dominio";
 import { ErroPartida, anularPartida, aplicarPartida, criarPartida, recusarPartida } from "@/lib/partidas";
-import { alunoPorId, turmaUnica } from "@/lib/consultas";
+import { alunoDaCidade, partidaDaCidade } from "@/lib/consultas";
 import { ehDuplicado, rodar, transacao, um } from "@/lib/db";
-import { conferirSegredo, gravarSegredo, novoPin } from "@/lib/pin";
-import { abrirSessao, exigirAluno, exigirProfessor, fecharSessao, getViewer } from "@/lib/sessao";
+import { conferirSegredo, entrarComPin, gravarPin, gravarSegredo } from "@/lib/pin";
+import { abrirSessao, exigirAdmin, exigirAluno, exigirProfessor, fecharSessao, getViewer } from "@/lib/sessao";
 import type { Jogo } from "@/lib/tipos";
 
 const texto = (fd: FormData, campo: string) => String(fd.get(campo) ?? "").trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PIN = new RegExp(`^\\d{${PIN_DIGITOS}}$`);
+const nomeValido = (n: string) => n.length >= 2 && n.length <= 60;
 
 const atualizar = () => revalidatePath("/", "layout");
 
@@ -34,67 +30,64 @@ async function tentar(fn: () => Promise<CodigoMensagem>): Promise<{ ok?: CodigoM
   }
 }
 const comMensagem = (caminho: string, r: { ok?: string; erro?: string }) =>
-  `${caminho}?${r.erro ? `erro=${r.erro}` : `ok=${r.ok}`}`;
-
-const LETRAS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O e 1/I para não confundir
-const novoCodigo = () => Array.from({ length: 6 }, () => LETRAS[randomInt(LETRAS.length)]).join("");
+  `${caminho}${caminho.includes("?") ? "&" : "?"}${r.erro ? `erro=${r.erro}` : `ok=${r.ok}`}`;
 
 // ───────────────────────── Entrar / sair ─────────────────────────
 
+/** O aluno escolheu a cidade e o local; aqui chega só o PIN. */
 export async function entrarAluno(fd: FormData) {
-  const codigo = texto(fd, "codigo").toUpperCase();
-  const alunoId = texto(fd, "aluno");
+  const cidade = texto(fd, "cidade");
+  const local = texto(fd, "local");
   const pin = texto(fd, "pin");
   const next = destinoSeguro(texto(fd, "next"));
   const volta = (erro: CodigoMensagem): never =>
     redirect(
-      `/entrar?codigo=${encodeURIComponent(codigo)}&aluno=${encodeURIComponent(alunoId)}&next=${encodeURIComponent(next)}&erro=${erro}`,
+      `/entrar?cidade=${encodeURIComponent(cidade)}&local=${encodeURIComponent(local)}&next=${encodeURIComponent(next)}&erro=${erro}`,
     );
-  if (!UUID.test(alunoId) || !/^\d{4}$/.test(pin)) volta("pin");
+  if (!UUID.test(local) || !PIN.test(pin)) volta("pin");
 
-  const aluno = await um(
-    "select s.id from students s join classes c on c.id = s.class_id where s.id = ? and s.active = 1 and c.join_code = ?",
-    [alunoId, codigo],
-  );
-  if (!aluno) volta("pin");
-
-  const r = await conferirSegredo(alunoId, pin);
-  if (r !== "ok") volta(r === "bloqueado" ? "bloqueado" : "pin");
-  await abrirSessao(alunoId);
+  // Na Vercel o x-forwarded-for é preenchido pela plataforma (o primeiro é o visitante).
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() || "local";
+  const r = await entrarComPin(local, pin, ip);
+  if (typeof r === "string") return volta(r === "bloqueado" ? "bloqueado" : "pin");
+  await abrirSessao(r.id);
   redirect(next);
 }
 
 export async function entrarProfessor(fd: FormData) {
-  const prof = await um<{ id: string }>("select id from teachers");
-  const r = prof ? await conferirSegredo(prof.id, texto(fd, "senha")) : "errado";
-  if (r !== "ok") redirect(`/professor/entrar?erro=${r === "bloqueado" ? "bloqueado" : "login"}`);
-  await abrirSessao(prof!.id);
+  const cidade = texto(fd, "cidade");
+  const volta = (erro: CodigoMensagem): never => redirect(`/professor/entrar?cidade=${encodeURIComponent(cidade)}&erro=${erro}`);
+  if (!UUID.test(cidade) || !(await um("select 1 from cities where id = ?", [cidade]))) volta("login");
+  const r = await conferirSegredo(cidade, texto(fd, "senha"));
+  if (r !== "ok") volta(r === "bloqueado" ? "bloqueado" : "login");
+  await abrirSessao(cidade);
   redirect("/professor");
 }
 
-/**
- * Primeiro acesso: cria o professor (só a senha) e a turma única do site.
- * Só funciona enquanto não existe professor; depois disso, a tela nem aparece.
- */
-export async function criarSenhaProfessor(fd: FormData) {
-  const senha = texto(fd, "senha");
-  if (senha.length < 8 || senha !== texto(fd, "confirmar")) redirect("/professor/entrar?erro=senha");
+export async function entrarAdmin(fd: FormData) {
+  const r = await conferirSegredo("admin", texto(fd, "senha"));
+  if (r !== "ok") redirect(`/admin/entrar?erro=${r === "bloqueado" ? "bloqueado" : "login"}`);
+  await abrirSessao("admin");
+  redirect("/admin");
+}
 
-  // A transação serializa dois pedidos simultâneos: o segundo já encontra o professor.
-  const id = await transacao(async (tx) => {
-    if ((await tx.execute("select 1 from teachers")).rows.length) return null;
-    const novo = randomUUID();
-    await tx.execute({ sql: "insert into teachers (id, name) values (?, 'Professor')", args: [novo] });
-    await tx.execute({
-      sql: "insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', ?)",
-      args: [randomUUID(), novo, novoCodigo()],
-    });
-    await gravarSegredo(novo, senha, tx);
-    return novo;
+/**
+ * Primeiro acesso: cria a senha do administrador.
+ * Só funciona enquanto ela não existe; depois disso, a tela nem aparece.
+ */
+export async function criarSenhaAdmin(fd: FormData) {
+  const senha = texto(fd, "senha");
+  if (senha.length < 8 || senha !== texto(fd, "confirmar")) redirect("/admin/entrar?erro=senha");
+
+  // A transação serializa dois pedidos simultâneos: o segundo já encontra a senha criada.
+  const criou = await transacao(async (tx) => {
+    if ((await tx.execute("select 1 from secrets where user_id = 'admin'")).rows.length) return false;
+    await gravarSegredo("admin", senha, tx);
+    return true;
   });
-  if (!id) redirect("/professor/entrar");
-  await abrirSessao(id);
-  redirect("/professor");
+  if (!criou) redirect("/admin/entrar");
+  await abrirSessao("admin");
+  redirect("/admin");
 }
 
 export async function sair() {
@@ -103,50 +96,100 @@ export async function sair() {
   redirect("/");
 }
 
-// ───────────────────────── Professor: alunos ─────────────────────────
+// ───────────────────────── Administrador: cidades ─────────────────────────
 
-async function turmaDoProfessor() {
-  await exigirProfessor();
-  return turmaUnica();
+/** Cria a cidade e a senha do professor dela. */
+export async function criarCidade(fd: FormData) {
+  await exigirAdmin();
+  const nome = texto(fd, "nome");
+  const senha = texto(fd, "senha");
+  if (!nomeValido(nome)) redirect("/admin?erro=nome");
+  if (senha.length < 8) redirect("/admin?erro=senha");
+  try {
+    await transacao(async (tx) => {
+      const id = randomUUID();
+      await tx.execute({ sql: "insert into cities (id, name) values (?, ?)", args: [id, nome] });
+      await gravarSegredo(id, senha, tx);
+    });
+  } catch (e) {
+    if (ehDuplicado(e)) redirect("/admin?erro=nome");
+    throw e;
+  }
+  atualizar();
+  redirect("/admin?ok=criado");
+}
+
+export async function trocarSenhaCidade(fd: FormData) {
+  await exigirAdmin();
+  const cidade = texto(fd, "cidade");
+  const senha = texto(fd, "senha");
+  if (senha.length < 8) redirect("/admin?erro=senha");
+  if (!UUID.test(cidade) || !(await um("select 1 from cities where id = ?", [cidade]))) redirect("/admin");
+  await gravarSegredo(cidade, senha);
+  // quem estava logado com a senha antiga sai
+  await rodar("delete from sessions where user_id = ?", [cidade]);
+  redirect("/admin?ok=senhaTrocada");
+}
+
+// ───────────────────────── Professor: locais e alunos ─────────────────────────
+
+/** O local, se for da cidade do professor logado. */
+async function localDoProfessor(localId: string) {
+  const prof = await exigirProfessor();
+  if (!UUID.test(localId)) return undefined;
+  return um<{ id: string }>("select id from classes where id = ? and city_id = ?", [localId, prof.id]);
 }
 async function alunoDoProfessor(alunoId: string) {
-  await exigirProfessor();
-  return UUID.test(alunoId) ? alunoPorId(alunoId) : undefined;
+  const prof = await exigirProfessor();
+  return UUID.test(alunoId) ? alunoDaCidade(alunoId, prof.id) : undefined;
+}
+
+export async function criarLocal(fd: FormData) {
+  const prof = await exigirProfessor();
+  const nome = texto(fd, "nome");
+  if (!nomeValido(nome)) redirect("/professor?erro=nome");
+  const id = randomUUID();
+  try {
+    await rodar("insert into classes (id, city_id, name) values (?, ?, ?)", [id, prof.id, nome]);
+  } catch (e) {
+    if (ehDuplicado(e)) redirect("/professor?erro=nome");
+    throw e;
+  }
+  atualizar();
+  redirect(`/professor?local=${id}&ok=criado`);
 }
 
 export type EstadoPin = { erro?: string; pin?: string; apelido?: string };
 
 export async function criarAluno(_: EstadoPin, fd: FormData): Promise<EstadoPin> {
-  const turma = await turmaDoProfessor();
+  const local = await localDoProfessor(texto(fd, "local"));
   const apelido = texto(fd, "apelido");
   const nivel = texto(fd, "nivel");
   const avatar = texto(fd, "avatar");
-  if (!turma || apelido.length < 2 || apelido.length > 20 || !ehNivel(nivel) || !ehAvatar(avatar))
+  if (!local || apelido.length < 2 || apelido.length > 20 || !ehNivel(nivel) || !ehAvatar(avatar))
     return { erro: "Preencha o apelido (2 a 20 letras), o nível e o avatar." };
 
   const id = randomUUID();
-  const pin = novoPin();
   try {
-    await transacao(async (tx) => {
+    const pin = await transacao(async (tx) => {
       await tx.execute({
         sql: "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)",
-        args: [id, turma.id, apelido, avatar, nivel, NIVEIS[nivel].rating, DEFAULT_CONFIG.initialRd],
+        args: [id, local.id, apelido, avatar, nivel, NIVEIS[nivel].rating, DEFAULT_CONFIG.initialRd],
       });
-      await gravarSegredo(id, pin, tx);
+      return gravarPin(tx, id, local.id);
     });
+    atualizar();
+    return { pin, apelido };
   } catch (e) {
-    if (ehDuplicado(e)) return { erro: "Já existe um aluno com esse apelido na turma." };
+    if (ehDuplicado(e)) return { erro: "Já existe um aluno com esse apelido neste local." };
     throw e;
   }
-  atualizar();
-  return { pin, apelido };
 }
 
 export async function redefinirPin(_: EstadoPin, fd: FormData): Promise<EstadoPin> {
   const aluno = await alunoDoProfessor(texto(fd, "aluno"));
   if (!aluno) return { erro: "Aluno não encontrado." };
-  const pin = novoPin();
-  await gravarSegredo(aluno.id, pin);
+  const pin = await transacao((tx) => gravarPin(tx, aluno.id, aluno.class_id));
   return { pin, apelido: aluno.nickname };
 }
 
@@ -162,16 +205,16 @@ export async function alternarAtivo(fd: FormData) {
 
 export async function registrarPartidaProfessor(fd: FormData) {
   const professor = await exigirProfessor();
-  const turma = await turmaDoProfessor();
-  if (!turma) redirect("/professor");
-  const base = "/professor/partidas";
+  const local = await localDoProfessor(texto(fd, "local"));
+  if (!local) redirect("/professor");
+  const base = `/professor/partidas?local=${local.id}`;
   const whiteId = texto(fd, "brancas");
   const blackId = texto(fd, "pretas");
   const score = Number(texto(fd, "resultado"));
-  if (!UUID.test(whiteId) || !UUID.test(blackId) || !ehResultado(score)) redirect(`${base}?erro=dados`);
+  if (!UUID.test(whiteId) || !UUID.test(blackId) || !ehResultado(score)) redirect(`${base}&erro=dados`);
 
   const r = await tentar(async () => {
-    const id = await criarPartida({ classId: turma.id, whiteId, blackId, whiteScore: score, reportedBy: professor.id });
+    const id = await criarPartida({ classId: local.id, whiteId, blackId, whiteScore: score, reportedBy: professor.id });
     await aplicarPartida(id, professor.id);
     return "registrada";
   });
@@ -202,24 +245,23 @@ export async function registrarPartidaAluno(fd: FormData) {
   redirect(r.erro ? `/registrar?erro=${r.erro}` : "/turma?ok=enviada");
 }
 
-/** Confirmar ou recusar uma partida pendente: o adversário (aluno) ou o professor da turma. */
+/** Confirmar ou recusar uma partida pendente: o adversário (aluno) ou o professor da cidade. */
 export async function responderPartida(fd: FormData) {
   const v = await getViewer();
   const gameId = texto(fd, "partida");
   const aceita = fd.get("resposta") === "sim";
-  if (!v || !UUID.test(gameId)) redirect("/");
+  if (!v || v.tipo === "admin" || !UUID.test(gameId)) redirect("/");
 
-  const g = await um<Pick<Jogo, "white_id" | "black_id" | "reported_by">>(
-    "select white_id, black_id, reported_by from games where id = ?",
-    [gameId],
-  );
-  const volta = v.tipo === "professor" ? "/professor/partidas" : "/turma";
-  if (!g) redirect(`${volta}?erro=resolvida`);
-
-  const participa = g.white_id === v.id || g.black_id === v.id;
-  const fuiEuQueRegistrei = g.reported_by === v.id;
-  // Aluno: só quem jogou. Quem registrou não confirma a própria partida (só pode cancelar).
-  if (v.tipo === "aluno" && (!participa || (aceita && fuiEuQueRegistrei))) redirect(`${volta}?erro=resolvida`);
+  let g: Pick<Jogo, "class_id" | "white_id" | "black_id" | "reported_by"> | undefined;
+  if (v.tipo === "professor") g = await partidaDaCidade(gameId, v.id);
+  else {
+    g = await um<Jogo>("select * from games where id = ?", [gameId]);
+    const participa = g?.white_id === v.id || g?.black_id === v.id;
+    // Aluno: só quem jogou. Quem registrou não confirma a própria partida (só pode cancelar).
+    if (!participa || (aceita && g?.reported_by === v.id)) g = undefined;
+  }
+  const volta = v.tipo === "professor" ? `/professor/partidas${g ? `?local=${g.class_id}` : ""}` : "/turma";
+  if (!g) redirect(comMensagem(volta, { erro: "resolvida" }));
 
   const r = await tentar(async () => {
     if (aceita) await aplicarPartida(gameId, v.id);
@@ -231,13 +273,14 @@ export async function responderPartida(fd: FormData) {
 }
 
 export async function anular(fd: FormData) {
-  await exigirProfessor();
+  const prof = await exigirProfessor();
   const gameId = texto(fd, "partida");
-  if (!UUID.test(gameId)) redirect("/professor");
+  const g = UUID.test(gameId) ? await partidaDaCidade(gameId, prof.id) : undefined;
+  if (!g) redirect("/professor");
   const r = await tentar(async () => {
     await anularPartida(gameId);
     return "anulada";
   });
   atualizar();
-  redirect(comMensagem("/professor/partidas", r));
+  redirect(comMensagem(`/professor/partidas?local=${g.class_id}`, r));
 }

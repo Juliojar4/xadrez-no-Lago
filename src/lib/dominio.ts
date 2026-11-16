@@ -1,5 +1,7 @@
 import type { Result } from "./glicko";
 
+export const PIN_DIGITOS = 4;
+
 export const NIVEIS = {
   iniciante: { rotulo: "Iniciante", rating: 400 },
   intermediario: { rotulo: "Intermediário", rating: 800 },
@@ -36,7 +38,10 @@ export const MENSAGENS = {
   resolvida: "Essa partida já foi resolvida.",
   dados: "Faltou preencher alguma coisa. Confere e tenta de novo.",
   pin: "PIN errado. Tenta de novo com calma!",
-  bloqueado: "Muitas tentativas. Espere 15 minutos (aluno: o professor pode criar um PIN novo).",
+  bloqueado: "Muitas tentativas. Espere 15 minutos e tente de novo.",
+  nome: "Esse nome já existe ou é curto demais (mínimo 2 letras).",
+  criado: "Criado!",
+  senhaTrocada: "Senha trocada.",
   login: "A senha não confere.",
   senha: "A senha precisa ter 8 letras ou mais, e as duas precisam ser iguais.",
   registrada: "Partida registrada! O rating já mudou.",

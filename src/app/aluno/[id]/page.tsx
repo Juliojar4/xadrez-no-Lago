@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
 import { GraficoRating } from "@/components/GraficoRating";
 import { LinhaPartida } from "@/components/LinhaPartida";
-import { alunoPorId, partidas } from "@/lib/consultas";
+import { alunoDaCidade, alunoPorId, partidas } from "@/lib/consultas";
 import { NIVEIS } from "@/lib/dominio";
 import { ratingNaTela } from "@/lib/ranking";
 import { getViewer, inicioDe } from "@/lib/sessao";
@@ -14,9 +14,9 @@ export const metadata: Metadata = { title: "Página do aluno" };
 export default async function PaginaAluno({ params }: PageProps<"/aluno/[id]">) {
   const [{ id }, v] = await Promise.all([params, getViewer()]);
   if (!v || !/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  // Qualquer pessoa logada é da turma única (colega ou professor).
-  const aluno = await alunoPorId(id);
-  if (!aluno) notFound();
+  // Só o professor da cidade e os colegas do mesmo local veem a página.
+  const aluno = v.tipo === "professor" ? await alunoDaCidade(id, v.id) : await alunoPorId(id);
+  if (!aluno || v.tipo === "admin" || (v.tipo === "aluno" && aluno.class_id !== v.classId)) notFound();
 
   const jogos = await partidas({ alunoId: id, status: "confirmada" }); // mais nova primeiro
   const placarDe = (p: (typeof jogos)[number]) => (p.white_id === id ? Number(p.white_score) : 1 - Number(p.white_score));

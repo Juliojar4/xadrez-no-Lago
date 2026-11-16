@@ -3,12 +3,35 @@ import { todos, um } from "./db";
 import type { AlunoLista } from "./ranking";
 import type { Aluno, Jogo } from "./tipos";
 
-// Não existe mais RLS: quem chama estas funções já passou por exigirAluno/exigirProfessor/getViewer.
+// Não existe RLS: quem chama estas funções já passou por exigirAluno/exigirProfessor/getViewer.
+// As que recebem `cityId` só devolvem o que é daquela cidade (o professor é a cidade).
 
-/** A turma única do site (não existe antes de o professor criar a senha). */
-export const turmaUnica = () => um<{ id: string; name: string; join_code: string }>("select id, name, join_code from classes");
+export type Cidade = { id: string; name: string; locais: number };
+export const cidades = () =>
+  todos<Cidade>(
+    `select c.id, c.name, (select count(*) from classes l where l.city_id = c.id) locais
+     from cities c order by c.name collate nocase`,
+  );
 
-/** Todos os alunos da turma, inclusive os desativados (tela do professor). */
+export type Local = { id: string; name: string };
+export const locaisDaCidade = (cityId: string) =>
+  todos<Local>("select id, name from classes where city_id = ? order by name collate nocase", [cityId]);
+
+/** Os locais da cidade e o escolhido em `?local=` (ou o primeiro). */
+export async function localDaVez(cityId: string, pedido: string | string[] | undefined) {
+  const locais = await locaisDaCidade(cityId);
+  return { locais, atual: locais.find((l) => l.id === pedido) ?? locais.at(0) };
+}
+
+/** O aluno, se for de um local daquela cidade. */
+export const alunoDaCidade = (id: string, cityId: string) =>
+  um<Aluno>("select s.* from students s join classes l on l.id = s.class_id where s.id = ? and l.city_id = ?", [id, cityId]);
+
+/** A partida, se for de um local daquela cidade. */
+export const partidaDaCidade = (id: string, cityId: string) =>
+  um<Jogo>("select g.* from games g join classes l on l.id = g.class_id where g.id = ? and l.city_id = ?", [id, cityId]);
+
+/** Todos os alunos do local, inclusive os desativados (tela do professor). */
 export const todosOsAlunos = (classId: string) => todos<Aluno>("select * from students where class_id = ?", [classId]);
 
 export const alunoPorId = (id: string) => um<Aluno>("select * from students where id = ?", [id]);

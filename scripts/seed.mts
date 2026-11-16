@@ -1,17 +1,18 @@
 /**
- * Dados de demonstração: o professor, a turma, 10 alunos e 8 semanas de aula.
+ * Dados de demonstração: o administrador, 2 cidades, 3 locais e 8 semanas de aula no primeiro.
  * Rode com `pnpm db:seed` num banco limpo (`pnpm db:reset` faz as duas coisas).
  * As partidas passam pelo MESMO caminho do site (criarPartida + aplicarPartida).
  */
 import { randomUUID } from "node:crypto";
-import { rodar, um } from "../src/lib/db";
+import { rodar, transacao, um } from "../src/lib/db";
 import { expectedScore, type Result } from "../src/lib/glicko";
-import { NIVEIS, type Nivel } from "../src/lib/dominio";
+import { type Nivel } from "../src/lib/dominio";
 import { aplicarPartida, criarPartida } from "../src/lib/partidas";
-import { gravarSegredo } from "../src/lib/pin";
+import { gravarPin, gravarSegredo } from "../src/lib/pin";
 import { jogadorInicial } from "../src/lib/rating";
 
-if (await um("select 1 from teachers")) throw new Error("Banco já semeado. Rode pnpm db:reset.");
+if (process.env.TURSO_DATABASE_URL) throw new Error("O seed só roda no banco local (tire TURSO_DATABASE_URL do ambiente).");
+if (await um("select 1 from cities")) throw new Error("Banco já semeado. Rode pnpm db:reset.");
 
 const DIA = 86_400_000;
 const SEMANAS = 8;
@@ -36,22 +37,45 @@ const ALUNOS: { apelido: string; nivel: Nivel; avatar: string; forca: number; en
   { apelido: "Gui", nivel: "intermediario", avatar: "rei-laranja", forca: 900, entraNaSemana: 7 },
 ];
 
-const professor = randomUUID();
-const turma = randomUUID();
-await rodar("insert into teachers (id, name) values (?, 'Professor')", [professor]);
-await rodar("insert into classes (id, teacher_id, name, join_code) values (?, ?, 'Turma', 'XADREZ')", [turma, professor]);
-await gravarSegredo(professor, "xadrez123");
+await gravarSegredo("admin", "admin123");
 
-const ids: string[] = [];
-for (const a of ALUNOS) {
+async function cidade(nome: string, senha: string) {
+  const id = randomUUID();
+  await rodar("insert into cities (id, name) values (?, ?)", [id, nome]);
+  await gravarSegredo(id, senha);
+  return id;
+}
+async function local(cityId: string, nome: string) {
+  const id = randomUUID();
+  await rodar("insert into classes (id, city_id, name) values (?, ?, ?)", [id, cityId, nome]);
+  return id;
+}
+async function aluno(classId: string, a: { apelido: string; nivel: Nivel; avatar: string }, pin: string) {
   const id = randomUUID();
   const j = jogadorInicial(id, a.nivel);
-  await rodar("insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)", [
-    id, turma, a.apelido, a.avatar, a.nivel, j.rating, j.rd,
-  ]);
-  await gravarSegredo(id, "1234");
-  ids.push(id);
+  await transacao(async (tx) => {
+    await tx.execute({
+      sql: "insert into students (id, class_id, nickname, avatar, initial_level, rating, rd) values (?, ?, ?, ?, ?, ?, ?)",
+      args: [id, classId, a.apelido, a.avatar, a.nivel, j.rating, j.rd],
+    });
+    await gravarPin(tx, id, classId, pin);
+  });
+  return id;
 }
+
+const professor = await cidade("Brasília", "xadrez123");
+const turma = await local(professor, "Escola do Lago");
+const clube = await local(professor, "Clube de Xadrez");
+const goiania = await cidade("Goiânia", "xadrez123");
+const praca = await local(goiania, "Praça do Xadrez"); // cidade com um local só: o aluno cai direto no PIN
+
+// PINs 1001, 1002, … na ordem da lista
+const ids: string[] = [];
+for (const [i, a] of ALUNOS.entries()) ids.push(await aluno(turma, a, String(1001 + i)));
+await aluno(clube, { apelido: "Rafa", nivel: "intermediario", avatar: "rei-roxo" }, "2001");
+await aluno(clube, { apelido: "Sofia", nivel: "iniciante", avatar: "dama-azul" }, "2002");
+await aluno(praca, { apelido: "Davi", nivel: "avancado", avatar: "torre-coral" }, "3001");
+await aluno(praca, { apelido: "Luna", nivel: "iniciante", avatar: "bispo-verde" }, "3002");
 
 // 8 aulas semanais (a última foi ontem), 5 rodadas por aula, pares sorteados
 let total = 0;
@@ -76,7 +100,10 @@ for (let semana = 0; semana < SEMANAS; semana++) {
 // uma partida esperando confirmação: Leo diz que ganhou da Bia
 await criarPartida({ classId: turma, whiteId: ids[1], blackId: ids[0], whiteScore: 1, reportedBy: ids[1] });
 
-console.log(`Pronto: ${ALUNOS.length} alunos, ${total} partidas confirmadas e 1 pendente.
-  Professor: senha xadrez123
-  Alunos:    código XADREZ, PIN 1234 (todos). Ex.: Bia, Leo, Duda…
-  Níveis: ${Object.values(NIVEIS).map((n) => `${n.rotulo} ${n.rating}`).join(" · ")}`);
+console.log(`Pronto: 2 cidades, 3 locais, ${ALUNOS.length + 4} alunos, ${total} partidas confirmadas e 1 pendente.
+  Administrador: senha admin123
+  Professores:   Brasília e Goiânia, senha xadrez123
+  Alunos (só o PIN):
+    Brasília · Escola do Lago:  ${ALUNOS.map((a, i) => `${a.apelido} ${1001 + i}`).join(", ")}
+    Brasília · Clube de Xadrez: Rafa 2001, Sofia 2002
+    Goiânia · Praça do Xadrez:  Davi 3001, Luna 3002`);
